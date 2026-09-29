@@ -2,6 +2,10 @@
 
 > Real-time price assignment with **Thompson Sampling** to maximize **LTV**, served from a **feature store** (Redis + Cosmos DB), tracked in **MLflow**, retrained on a schedule and deployed on **Azure**.
 
+[![CI](https://github.com/juandsep/dynamic-pricing-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/juandsep/dynamic-pricing-engine/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.11-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 ---
 
 ## The problem
