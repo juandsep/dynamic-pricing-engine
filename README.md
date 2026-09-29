@@ -1,91 +1,94 @@
-# Dynamic Pricing Engine · Motor de Precios Dinámicos con Feature Store
+# Dynamic Pricing Engine
 
-> Precios en tiempo real con **Thompson Sampling** para maximizar el **LTV**, servidos desde una **feature store** (Redis + Cosmos DB) y desplegados en **Azure** con reentrenamiento automatizado y tracking en MLflow.
+> Real-time price assignment with **Thompson Sampling** to maximize **LTV**, served from a **feature store** (Redis + Cosmos DB), tracked in **MLflow**, retrained on a schedule and deployed on **Azure**.
 
 ---
 
-## El problema
+## The problem
 
-Fijar un precio único para todo el catálogo y para todos los clientes deja dinero sobre la mesa:
+A single price for the whole catalogue leaves money on the table:
 
-- A los clientes con alta propensión se les cobra **por debajo** de lo que están dispuestos a pagar.
-- A los sensibles al precio se les cobra **por encima** y se pierden.
-- El precio óptimo **cambia con el tiempo** (estacionalidad, stock, competencia, señales del cliente) y un modelo estático no lo sigue.
+- Customers with a high willingness to pay are charged **below** what they would accept.
+- Price-sensitive customers are charged **above** and are lost.
+- The optimal price **moves over time** — seasonality, stock, competition, live client signals — and a static model cannot follow it.
 
-## La solución
+## The approach
 
-Un motor que **asigna precio por cliente en tiempo real** tratando cada nivel de precio como un *arm* de un problema de **multi-armed bandit** y resolviéndolo con **Thompson Sampling**:
+A service that assigns a price **per customer in real time**, treating each price level as an *arm* of a multi-armed bandit problem and solving it with **Thompson Sampling**:
 
-1. Muestrea de la posterior (Beta) de cada *arm* de precio para el segmento del cliente.
-2. Elige el *arm* con mayor valor esperado y respeta los límites de precio (`floor`/`ceiling`).
-3. Observa el resultado (conversión, margen, LTV) y **actualiza la posterior**.
-4. Explora de forma natural: los *arms* con incertidumbre siguen recibiendo tráfico, sin apagarlos prematuramente.
+1. Sample from the Beta posterior of each price *arm* for the customer's segment.
+2. Pick the arm with the highest expected value, respecting the price floor and ceiling.
+3. Observe the outcome (conversion, margin, LTV) and **update the posterior**.
+4. Explore naturally: uncertain arms keep receiving traffic instead of being switched off early.
 
-El resultado es una política que **aprende sola**, converge al precio óptimo por segmento y sigue el *drift* sin reentrenamientos manuales.
+The result is a policy that **learns on its own**, converges to the per-segment optimum and follows drift without manual retraining.
 
-## Arquitectura
+## Architecture
 
 ```
                         ┌───────────────────────────┐
-   cliente ────▶  GET /price ──▶  ThompsonSampler    │
+   client ────▶  GET /price ──▶  ThompsonSampler     │
                         │              │             │
                         │              ▼             │
                         │      FeatureStore           │
                         │        ├─ Azure Cache for Redis   (online, <10 ms)
-                        │        └─ Cosmos DB               (persistencia / eventos)
+                        │        └─ Cosmos DB               (persistence / events)
                         │              │
                         │              ▼
-                        └──────▶ MLflow (runs, métricas, registry)
+                        └──────▶ MLflow (runs, metrics, registry)
                                        ▲
                                        │
-                     GitHub Actions (cron semanal) ──▶ scripts/retrain.py
+                     GitHub Actions (weekly cron) ──▶ scripts/retrain.py
 ```
 
 ## Stack
 
-| Capa | Tecnología |
+| Layer | Technology |
 |---|---|
 | API | FastAPI + Uvicorn |
-| Algoritmo | Thompson Sampling (posterior Beta) sobre NumPy/SciPy |
-| Feature store | Azure Cache for Redis (online) · Azure Cosmos DB (offline/eventos) |
-| Tracking / registry | MLflow |
-| Reentrenamiento | GitHub Actions (cron) |
-| Despliegue | Azure Container Apps + Azure Container Registry |
-| Secretos | Azure Key Vault (auth OIDC federada en CI) |
-| Observabilidad | Application Insights + Log Analytics |
-| Gestión de entorno | **uv** (`pyproject.toml` + `uv.lock`) |
-| Tests | pytest |
+| Algorithm | Thompson Sampling (Beta posterior) on NumPy/SciPy |
+| Feature store | Azure Cache for Redis (online) · Azure Cosmos DB (offline / events) |
+| Tracking & registry | MLflow |
+| Retraining | GitHub Actions (cron) |
+| Deployment | Azure Container Apps + Azure Container Registry |
+| Secrets | Azure Key Vault (OIDC federated auth in CI) |
+| Observability | Application Insights + Log Analytics |
+| Environment | **uv** (`pyproject.toml` + `uv.lock`) |
+| Tests & lint | pytest · ruff |
 
-## Estado del proyecto
+## Project status
 
-Roadmap detallado en [`PLAN.md`](./PLAN.md).
+Roadmap in [`PLAN.md`](./PLAN.md).
 
-- [x] **F0** · Fundaciones: repo, proyecto `uv`, lock, tests, CI base
-- [ ] **F1** · Feature store: Redis online + Cosmos DB, contratos y versionado de features
-- [ ] **F2** · Algoritmo: posterior Beta por arm/segmento, guardas de precio, reward = margen/LTV
-- [ ] **F3** · API: `GET /price`, `POST /reward`, healthchecks
-- [ ] **F4** · Tracking MLflow: parámetros, métricas (LTV, conversión, regret), registry
-- [ ] **F5** · Reentrenamiento automatizado (GitHub Actions, cron semanal)
-- [ ] **F6** · Despliegue en Azure (Container Apps, ACR, Key Vault)
-- [ ] **F7** · Observabilidad: dashboards de LTV por arm, drift, latencia, regret
+- [x] **F0** · Foundations: repo, uv project, lockfile, tests, base CI
+- [ ] **F1** · Feature store: Redis online + Cosmos DB, feature contracts and versioning
+- [ ] **F2** · Algorithm: Beta posterior per arm/segment, price guards, reward = margin/LTV
+- [ ] **F3** · API: `GET /price`, `POST /reward`, `/health`
+- [ ] **F4** · MLflow tracking: parameters, metrics (LTV, conversion, regret), registry
+- [ ] **F5** · Automated retraining (GitHub Actions, weekly cron)
+- [ ] **F6** · Azure deployment (Container Apps, ACR, Key Vault)
+- [ ] **F7** · Observability: LTV per arm, drift, latency, regret dashboards
 
-## Estructura
+## Repository layout
 
 ```
 dynamic-pricing-engine/
 ├─ src/dp/
-│   ├─ __init__.py     # entrypoint (`dp` console script)
-│   ├─ api.py          # FastAPI, endpoint /price
-│   ├─ thompson.py     # Thompson Sampling (posterior Beta)
-│   └─ store.py        # FeatureStore: Redis (online) / Cosmos DB (persistencia)
-├─ tests/              # pytest
-├─ scripts/            # retrain.py, bootstrap, migraciones
-├─ infra/              # Terraform (azurerm): Container Apps, ACR, Redis, Cosmos, Key Vault
-├─ monitoring/         # dashboards y alertas
-├─ .github/workflows/  # CI (+ reentrenamiento programado)
-├─ Dockerfile
+│   ├─ __init__.py     # package entry point
+│   ├─ api.py          # FastAPI app: /price, /health
+│   ├─ thompson.py     # Thompson Sampling policy
+│   └─ store.py        # feature store: Redis (online) / Cosmos DB (persistence)
+├─ tests/
+│   ├─ unit/           # fast, no external services
+│   └─ integration/    # wired against fakes or containers
+├─ scripts/            # retrain.py, bootstrap, migrations
+├─ docker/             # multi-stage Dockerfile
+├─ docs/               # architecture notes
+├─ infra/              # Terraform (azurerm)
+├─ monitoring/         # dashboards and alerts
+├─ .github/workflows/  # CI (and scheduled retraining)
 ├─ PLAN.md
-└─ pyproject.toml      # dependencias gestionadas con uv
+└─ pyproject.toml      # dependencies managed with uv
 ```
 
 ## Quickstart
@@ -94,41 +97,41 @@ dynamic-pricing-engine/
 git clone https://github.com/juandsep/dynamic-pricing-engine.git
 cd dynamic-pricing-engine
 
-uv sync                # crea .venv desde uv.lock
-uv run pytest -q       # tests
-uv run dp              # levanta la API en http://localhost:8000
+uv sync                  # create .venv from uv.lock
+uv run pytest -q         # unit tests
+uv run uvicorn dp.api:app --reload   # http://localhost:8000
 ```
 
-Probar el endpoint:
+Ask for a price:
 
 ```bash
 curl "http://localhost:8000/price?user_id=user-42"
 ```
 
-## Configuración
+## Configuration
 
-| Variable | Descripción |
+| Variable | Description |
 |---|---|
-| `REDIS_URL` | Azure Cache for Redis (feature store online) |
-| `COSMOS_ENDPOINT` / `COSMOS_DATABASE` | Cosmos DB (eventos y atributos) |
-| `MLFLOW_TRACKING_URI` | backend de tracking / registry |
-| `PRICE_MIN` / `PRICE_MAX` | rango permitido de precios |
-| `AZURE_KEYVAULT_URL` | origen de secretos en runtime |
+| `REDIS_URL` | Azure Cache for Redis (online feature store) |
+| `COSMOS_ENDPOINT` / `COSMOS_DATABASE` | Cosmos DB (events and attributes) |
+| `MLFLOW_TRACKING_URI` | tracking / registry backend |
+| `PRICE_MIN` / `PRICE_MAX` | allowed price range |
+| `AZURE_KEYVAULT_URL` | secret source at runtime |
 
-## Despliegue
+## Deployment
 
-`docker build -t dynamic-pricing-engine .` → push a **Azure Container Registry** → `az containerapp update`.
-Terraform e instrucciones en [`infra/`](./infra/README.md); pipeline en `.github/workflows/`.
+`docker build -f docker/Dockerfile -t dynamic-pricing-engine .` → push to **Azure Container Registry** → `az containerapp update`.
+Terraform and notes in [`infra/`](./infra/README.md); pipeline in `.github/workflows/`.
 
-## Métricas de éxito
+## Success metrics
 
-- LTV incremental vs. baseline de precio fijo por encima del umbral objetivo.
-- Latencia p95 de `/price` < 50 ms.
-- Cero violaciones de `PRICE_MIN` / `PRICE_MAX`.
+- Incremental LTV against a fixed-price baseline above the agreed threshold.
+- p95 latency of `/price` below 50 ms.
+- Zero violations of `PRICE_MIN` / `PRICE_MAX`.
 
-## Referencias
+## Related
 
-Estructura, CI y convenciones alineadas con el pipeline de referencia `uplift-modeling-pipeline`.
+Structure, CI and conventions follow the reference pipeline `uplift-modeling-pipeline`.
 
 ---
 

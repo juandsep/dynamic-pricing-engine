@@ -1,17 +1,19 @@
-"""Reentrenamiento programado del motor de precios.
+"""Scheduled retraining of the pricing policy.
 
-Ejecutado por GitHub Actions (cron). Recalibra los priors del Thompson Sampler
-a partir de los eventos almacenados en DynamoDB y registra la política en MLflow.
+Run by the weekly GitHub Actions workflow. It replays the events stored in
+Cosmos DB, recalibrates the Thompson Sampling priors and registers the
+resulting policy in MLflow.
 
-Placeholder: implementar la carga de eventos y el cálculo de posteriores.
+Placeholder: implement event loading and the posterior update.
 """
 
 from __future__ import annotations
 
 
 def main() -> None:
-    # TODO: leer eventos DynamoDB -> calcular posteriores Beta por arm/segmento
-    # TODO: mlflow.log_params / log_metrics + registrar política candidata
+    """Replay events, recalibrate priors and register the policy."""
+    # TODO: read events from Cosmos DB -> recompute Beta posteriors per arm/segment
+    # TODO: mlflow.log_params / log_metrics, then register the candidate policy
     print("retrain: noop (placeholder)")
 
 

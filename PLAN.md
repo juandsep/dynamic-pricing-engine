@@ -1,24 +1,26 @@
-# PLAN — Motor de Precios Dinámicos (DP)
+# Plan — Dynamic Pricing Engine
 
-Objetivo: asignar precio en tiempo real con Thompson Sampling para maximizar LTV, con feature store, reentrenamiento automatizado y despliegue continuo.
+Goal: assign prices in real time with Thompson Sampling to maximize LTV, backed by a feature store, automated retraining and continuous deployment on Azure.
 
-## Fases
+Each phase is one short-lived branch cut from `dev`, one pull request, one concern.
 
-- [x] **F0 · Fundaciones** — repo git, proyecto `uv`, lock, `pytest`, CI base.
-- [ ] **F1 · Feature store** — `store.py`: Redis online (lectura <10 ms) + DynamoDB (persistencia/eventos). Contratos de features y versionado.
-- [ ] **F2 · Algoritmo** — `thompson.py`: posterior Beta por *arm* precio y por segmento; reward = margen/LTV observado. Política de exploración y guardas (price floor/ceiling).
-- [ ] **F3 · API** — `api.py`: `GET /price`, `POST /reward` (feedback de conversión), healthchecks, batching de features.
-- [ ] **F4 · Tracking** — MLflow: logging de parámetros, métricas (LTV, conversión, regret), registro de políticas candidatas.
-- [ ] **F5 · Reentrenamiento** — GitHub Actions programado (cron semanal) que recalibra priors y registra en MLflow.
-- [ ] **F6 · Despliegue** — Docker → ECR → ECS Fargate; task definition + service + autoscaling (`infra/`).
-- [ ] **F7 · Observabilidad** — dashboards (LTV por arm, drift de features, latencia), alertas.
+## Phases
 
-## Métricas de éxito
+- [x] **F0 · Foundations** — git repo, uv project, lockfile, pytest, base CI.
+- [ ] **F1 · Feature store** — `store.py`: Redis online reads (p99 < 10 ms) plus Cosmos DB for events and durable attributes. Feature contracts and versioning.
+- [ ] **F2 · Algorithm** — `thompson.py`: Beta posterior per price arm and per segment; reward = observed margin/LTV. Exploration policy plus price floor/ceiling guards.
+- [ ] **F3 · API** — `api.py`: `GET /price`, `POST /reward` (conversion feedback), `/health`, feature batching.
+- [ ] **F4 · Tracking** — MLflow: log parameters, metrics (LTV, conversion, regret) and register candidate policies.
+- [ ] **F5 · Retraining** — scheduled GitHub Actions workflow (weekly cron) that recalibrates priors and registers them in MLflow.
+- [ ] **F6 · Deployment** — Docker → Azure Container Registry → Container Apps; environment variables and secrets from Key Vault.
+- [ ] **F7 · Observability** — dashboards (LTV per arm, feature drift, latency) and alerts.
 
-- LTV incremental vs. baseline (precio fijo) > umbral acordado.
-- p95 de latencia `/price` < 50 ms.
-- Cero violaciones de price floor/ceiling.
+## Success metrics
 
-## Referencia
+- Incremental LTV versus a fixed-price baseline above the agreed threshold.
+- p95 latency of `/price` below 50 ms.
+- Zero price floor/ceiling violations.
 
-Estructura, CI y convenciones basadas en `../portfolio/uplift-modeling-pipeline`.
+## Reference
+
+Structure, CI and conventions follow `uplift-modeling-pipeline`.

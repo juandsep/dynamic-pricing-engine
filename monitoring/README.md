@@ -1,11 +1,14 @@
-# Monitoring — DP
+# Monitoring — Dynamic Pricing Engine
 
-Dashboards y alertas del motor de precios:
+Dashboards and alerts for the pricing service:
 
-- **LTV y conversión por arm de precio** (evolución temporal).
-- **Drift de features** (distribución de features online vs. entrenamiento).
-- **Latencia** p50/p95 del endpoint `/price`.
-- **Regret** estimado de la política vs. baseline de precio fijo.
+| Signal | Why it matters |
+|---|---|
+| LTV and conversion per price arm | shows which arms are actually winning |
+| Feature drift (online vs. training) | a stale feature store silently degrades prices |
+| Latency p50/p95 of `/price` | the request path must stay under the 50 ms budget |
+| Estimated regret vs. fixed-price baseline | the business case, tracked continuously |
+| Posterior uncertainty per arm | arms that never converge indicate a broken reward signal |
 
-Stack sugerido: Prometheus + Grafana sobre las métricas expuestas por el servicio;
-paneles equivalentes a `../../portfolio/uplift-modeling-pipeline/monitoring`.
+Suggested stack: Prometheus + Grafana scraping the service metrics, with panels
+mirroring the ones in `uplift-modeling-pipeline/monitoring`.
