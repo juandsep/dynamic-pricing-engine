@@ -1,0 +1,3 @@
+# Dynamic Pricing
+
+Def  …  { "  ...
