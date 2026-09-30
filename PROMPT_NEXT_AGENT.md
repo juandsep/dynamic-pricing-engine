@@ -6,8 +6,8 @@ Copy everything below the line into the next agent's first message.
 
 CONTEXT
 
-- Repository: juandsep/dynamic-pricing-engine (local folder name is `dp`; the GitHub repo is
-  `juandsep/dynamic-pricing-engine`). Work only inside that folder.
+- Repository: `juandsep/dynamic-pricing-engine` (the local folder is named `dp`).
+  Work only inside that folder.
 - Python project managed with **uv** (`pyproject.toml` + `uv.lock`). Console script: `uv run dp`.
 - Branch model: `main` (releases) ← `dev` (integration) ← topic branches cut from `dev`.
   Cut your branch from `dev`; `main` only receives PRs from `dev`.
@@ -21,8 +21,9 @@ CONTEXT
   - `.github/workflows/ci.yml` — test job (uv sync --locked, ruff, pytest) and a docker build job.
 - The project is hosted on Azure as of this task, but the code and dependencies still
   carry AWS assumptions: `boto3` is a dependency, and `infra/` only contains documentation.
-- Reference for structure and conventions: the uplift-modeling-pipeline project.
-  Mirror its layout, its CI shape, its CONTRIBUTING conventions and its Dockerfile pattern.
+- Reference for structure and conventions: the `uplift-modeling-pipeline` project of the
+  same portfolio. Mirror its layout, its CI shape, its CONTRIBUTING conventions and its
+  Dockerfile pattern.
 
 OBJECTIVE
 
