@@ -36,8 +36,8 @@ fix: keep the sampled price inside the configured floor and ceiling
 
 ```bash
 uv sync
-uv run pytest                         # unit tests
-uv run pytest --cov --cov-fail-under=80
+uv run pytest                                    # unit and integration tests
+uv run pytest --cov --cov-report=term-missing    # coverage report
 uv run ruff check . && uv run ruff format --check .
 ```
 
