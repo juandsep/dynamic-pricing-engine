@@ -55,6 +55,150 @@ Free grants cover the running hours; destroying removes the ones that bill while
 state stays local (`infra/*.tfstate` is git-ignored) because a state storage account would be the
 only resource nobody ever destroys.
 
+## Bootstrap (one-off, by hand)
+
+Terraform provisions the stack. The steps below cannot be done by it — they are account-level —
+and they are the only manual work in this repository. Run them once per subscription.
+
+### 1. Sign in and pin the subscription
+
+```bash
+brew install azure-cli
+az login
+az account list --query "[].{name:name, id:id, state:state}" -o table
+az account set --subscription "<subscription-id-or-name>"
+
+export SUB_ID=$(az account show --query id -o tsv)
+export TENANT_ID=$(az account show --query tenantId -o tsv)
+```
+
+Everything after this runs against that subscription. Confirm `SUB_ID` is the one you expect before
+the next step: every command below writes to whatever `az account show` reports.
+
+### 2. Register the resource providers
+
+Once per subscription; the first `terraform apply` is noisy and slow without it.
+
+```bash
+for ns in Microsoft.App Microsoft.DocumentDB Microsoft.OperationalInsights \
+          Microsoft.Insights Microsoft.ManagedIdentity; do
+  az provider register --namespace "$ns" --wait
+done
+```
+
+### 3. Resource group
+
+```bash
+az group create --name rg-dp-staging --location eastus2
+```
+
+`eastus2` because Container Apps bills 2.4e-05 USD per vCPU-second there against 3.4e-05 in
+`spaincentral` and `westeurope` (~42 % more).
+
+### 4. Budget: fixed at 10 USD/month
+
+```bash
+az consumption budget create \
+  --budget-name dp-10usd \
+  --category cost \
+  --amount 10 \
+  --time-grain monthly \
+  --start-date 2026-10-01 \
+  --end-date 2030-12-31
+```
+
+This is a tripwire, not a hard stop: **an Azure budget only alerts, it never stops spending**. The
+target for this stack is 0 USD, so any figure above 0 means a resource outlived its demo — look for a
+leftover Container Apps environment or Cosmos account before touching the budget.
+
+The subscription-scope command above cannot set the alerts (`--notifications` only exists on
+`create-with-rg`). Add the three thresholds once in the portal in **Cost Management → Budgets →
+dp-10usd → Alert conditions**: actual cost at 50 % and 90 %, forecasted at 100 %, to your email.
+If you would rather script them, `az consumption budget create-with-rg --notifications '??'` prints
+the shorthand schema. A budget is deleted automatically when it expires, which is why the end date is
+far out.
+
+### 5. GitHub Actions identity (OIDC, no stored keys)
+
+```bash
+APP_NAME="gh-dynamic-pricing-engine"
+APP_ID=$(az ad app create --display-name "$APP_NAME" --query appId -o tsv)
+az ad sp create --id "$APP_ID"          # no-op error is fine if it already exists
+
+cat > fc-dev.json <<EOF
+{"name": "github-dev",
+ "issuer": "https://token.actions.githubusercontent.com",
+ "subject": "repo:juandsep/dynamic-pricing-engine:ref:refs/heads/dev",
+ "audiences": ["api://AzureADTokenExchange"]}
+EOF
+
+cat > fc-staging.json <<EOF
+{"name": "github-environment-staging",
+ "issuer": "https://token.actions.githubusercontent.com",
+ "subject": "repo:juandsep/dynamic-pricing-engine:environment:staging",
+ "audiences": ["api://AzureADTokenExchange"]}
+EOF
+
+az ad app federated-credential create --id "$APP_ID" --parameters fc-dev.json
+az ad app federated-credential create --id "$APP_ID" --parameters fc-staging.json
+rm fc-dev.json fc-staging.json
+```
+
+**Both credentials are required.** The deploy job declares `environment: staging`, and GitHub then
+stamps the token's `sub` claim with the *environment*, not the branch — a credential that only trusts
+`ref:refs/heads/dev` is rejected by `azure/login` with an unhelpful error. Create whichever
+credentials match the workflow as written.
+
+### 6. Role assignment
+
+```bash
+az role assignment create \
+  --assignee "$APP_ID" \
+  --role "Contributor" \
+  --scope "/subscriptions/$SUB_ID/resource-groups/rg-dp-staging"
+```
+
+Contributor on the resource group, not on the subscription, and never Owner. CI only needs to update
+the Container App; if you want it narrower, `Container Apps Contributor` on the same scope is enough
+and you can drop Contributor.
+
+### 7. GitHub secrets
+
+```bash
+gh secret set AZURE_CLIENT_ID     --body "$APP_ID"
+gh secret set AZURE_TENANT_ID     --body "$TENANT_ID"
+gh secret set AZURE_SUBSCRIPTION_ID --body "$SUB_ID"
+```
+
+Nothing else. The image goes to GHCR with the workflow's own `GITHUB_TOKEN`, and the app reaches
+Cosmos with its managed identity, so there is no registry credential and no connection string.
+
+### 8. Then Terraform
+
+```bash
+cd infra && terraform init && terraform validate
+terraform plan  -var-file=terraform.tfvars && terraform apply -var-file=terraform.tfvars
+```
+
+The Cosmos account must be created with the free tier enabled: **one free-tier account per
+subscription and the opt-in only exists at creation time**, so if the subscription already has one,
+`apply` fails on that property and the design needs a decision rather than a workaround.
+
+### 9. Teardown
+
+```bash
+terraform destroy -var-file=terraform.tfvars
+```
+
+Then confirm nothing survives:
+
+```bash
+az resource list --resource-group rg-dp-staging -o table
+az consumption budget show --budget-name dp-10usd -o table
+az ad app federated-credential list --id "$APP_ID" -o table
+az role assignment list --assignee "$APP_ID" --all -o table
+```
+
 ## Conventions
 
 - One module per resource group concern. The layout in this repository is the reference for Azure;
