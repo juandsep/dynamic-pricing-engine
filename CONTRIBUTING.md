@@ -48,8 +48,9 @@ both `dev` and `main`.
 
 Credentials live in the environment, never in the repository. Settings are read
 from environment variables (see the README table); `.env` is git-ignored for
-local development. Workloads read secrets from Azure Key Vault, and CI
-authenticates through OIDC federated credentials — no long-lived cloud keys.
+local development. There is no key vault and no stored secret: workloads
+authenticate to Cosmos DB with a managed identity, and CI authenticates to Azure
+through OIDC federated credentials — no long-lived cloud keys, nothing to rotate.
 
 If a real secret ever reaches a commit, treat it as compromised: rotate it
 first, then rewrite history. Deleting the commit is not enough.
