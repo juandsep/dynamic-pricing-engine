@@ -23,6 +23,9 @@ jobs:
         run: uv sync --locked
       - name: Lint
         run: uv run ruff check . && uv run ruff format --check .
+      # Same hook and baseline as pre-commit, for commits made without it.
+      - name: Secret scan
+        run: uv run pre-commit run detect-secrets --all-files
       - name: Test
         run: uv run pytest -q --cov --cov-report=term-missing
 
