@@ -98,25 +98,54 @@ az group create --name rg-dp-staging --location eastus2
 ### 4. Budget: fixed at 10 USD/month
 
 ```bash
-az consumption budget create \
-  --budget-name dp-10usd \
-  --category cost \
-  --amount 10 \
-  --time-grain monthly \
-  --start-date 2026-10-01 \
-  --end-date 2030-12-31
+export ALERT_EMAIL="you@example.com"
+
+cat > budget.json <<EOF
+{
+  "properties": {
+    "category": "Cost",
+    "amount": 10,
+    "timeGrain": "Monthly",
+    "timePeriod": { "startDate": "2026-10-01T00:00:00Z", "endDate": "2030-12-31T00:00:00Z" },
+    "notifications": {
+      "actual-50-percent":      { "enabled": true, "operator": "GreaterThan", "threshold": 50,  "thresholdType": "Actual",     "contactEmails": ["$ALERT_EMAIL"] },
+      "actual-90-percent":      { "enabled": true, "operator": "GreaterThan", "threshold": 90,  "thresholdType": "Actual",     "contactEmails": ["$ALERT_EMAIL"] },
+      "forecasted-100-percent": { "enabled": true, "operator": "GreaterThan", "threshold": 100, "thresholdType": "Forecasted", "contactEmails": ["$ALERT_EMAIL"] }
+    }
+  }
+}
+EOF
+
+az rest --method put \
+  --url "https://management.azure.com/subscriptions/$SUB_ID/providers/Microsoft.Consumption/budgets/dp-10usd?api-version=2023-11-01" \
+  --body @budget.json
+
+rm budget.json
+```
+
+Use this rather than `az consumption budget create`. That subcommand exists, but at
+subscription scope it **cannot express the notifications block** — `--notifications` is only on
+`create-with-rg` — so the budget it creates never tells anyone anything. The REST call above is
+Microsoft's documented automation path and carries the thresholds in the same request, so there is
+no portal step afterwards.
+
+The API enforces the rules: `startDate` must be the first day of the month, up to five
+notifications per budget, `threshold` is a percentage between 0 and 1000, and at subscription scope
+`contactEmails` is required. `2019-10-01` also works if your CLI is pinned to an older API version.
+
+Confirm it exists and carries the alerts:
+
+```bash
+az rest --method get \
+  --url "https://management.azure.com/subscriptions/$SUB_ID/providers/Microsoft.Consumption/budgets/dp-10usd?api-version=2023-11-01" \
+  --query "properties.{amount:amount, notifications:notifications}" -o json
 ```
 
 This is a tripwire, not a hard stop: **an Azure budget only alerts, it never stops spending**. The
 target for this stack is 0 USD, so any figure above 0 means a resource outlived its demo — look for a
-leftover Container Apps environment or Cosmos account before touching the budget.
+leftover Container Apps environment or Cosmos account before touching the budget. A budget is deleted
+automatically when it expires, which is why the end date is far out.
 
-The subscription-scope command above cannot set the alerts (`--notifications` only exists on
-`create-with-rg`). Add the three thresholds once in the portal in **Cost Management → Budgets →
-dp-10usd → Alert conditions**: actual cost at 50 % and 90 %, forecasted at 100 %, to your email.
-If you would rather script them, `az consumption budget create-with-rg --notifications '??'` prints
-the shorthand schema. A budget is deleted automatically when it expires, which is why the end date is
-far out.
 
 ### 5. GitHub Actions identity (OIDC, no stored keys)
 
