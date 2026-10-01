@@ -134,3 +134,30 @@ is what has to come out of a real system, in order of value:
 
 Minimum viable export: one CSV or JSONL per event type with the columns above, one row per
 event, no PII beyond an opaque `user_id`, and an explicit `window_hours` on every reward.
+
+## What the exercise dataset must satisfy
+
+The log contract above is what the *service* writes. Training and evaluating the policy needs a
+different artefact: a file of past decisions with their outcomes. Before trusting one, check it
+against this list — every item below is a way the exercise fails silently.
+
+1. **The price actually charged, per transaction.** A list price, a recommended price or a price
+   band is not enough: without the price the customer paid, nothing relates price to behaviour.
+2. **The same product seen at more than one price.** Elasticity is not identifiable from items
+   that never changed price. Require at least **2-3 distinct price points per product**, and
+   count how many products you have to drop for failing this — the number is the first thing to
+   report, because it decides whether the dataset is usable at all.
+3. **An outcome per observation.** Units sold, conversion, revenue — something to maximise.
+   Costs or a margin proxy are needed to turn revenue into margin; without them the objective is
+   undefined and "improvement" is unfalsifiable.
+4. **A stable segment key and a timestamp.** The posterior is kept per (arm, segment), so the
+   segment must be derivable on every row and must not change definition mid-log. The timestamp
+   is what makes a time-based split and drift detection possible.
+5. **Enough outcomes per arm.** About **100 rewards per arm** before a Beta posterior says
+   anything. With 19 price arms that is ~1,900 rewards; at a realistic low conversion rate, tens
+   of thousands of rows. Below that, report coverage per arm and refuse to report a mean.
+6. **No PII** beyond an opaque identifier, and no free text describing the customer.
+7. **The counterfactual is missing unless it was logged.** Observational data has no
+   propensities, so it cannot be used for off-policy evaluation directly. Either the price was
+   assigned randomly (then the propensity is known) or you fit demand from the data and
+   **simulate** the log on top of the fit. Assume the second and state it.
