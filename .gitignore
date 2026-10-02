@@ -22,6 +22,9 @@ htmlcov/
 .env.*
 !.env.example
 
+# Data (see docs/data-contract.md; refresh with scripts/fetch_data.sh)
+data/
+
 # Terraform
 infra/.terraform/
 infra/*.tfstate

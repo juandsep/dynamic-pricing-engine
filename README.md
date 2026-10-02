@@ -117,7 +117,9 @@ What makes it usable for pricing: the same product is sold at several different 
 over time, so the price–response curve is identifiable, and quantity gives an outcome to
 maximise. Measured on the download: after dropping returns, zero prices and cancellations,
 **88.6% of products have at least two price points and 77.6% have three or more** (median 4),
-and 99.2% of the rows sit behind those products. What it does **not** have is propensities — nobody logged the probability of the
+and 99.2% of the rows sit behind those products. Fitting them (`python -m dp.demand`) keeps
+2,759 products, with a median elasticity of −2.41 and a median R² of 0.53 — 0.26 when a curve
+fitted before May 2011 is measured on the months after it. What it does **not** have is propensities — nobody logged the probability of the
 price that was charged — so it cannot be used for off-policy evaluation directly. That is
 why the pipeline fits demand on the real data and then simulates a log with known
 propensities on top of it.
@@ -134,6 +136,11 @@ Requires [uv](https://docs.astral.sh/uv/).
 uv sync
 uv run pre-commit install
 uv run pytest -q
+
+scripts/fetch_data.sh                  # 44 MB into data/raw/ (git-ignored)
+uv run python -m dp.data               # clean both sheets → data/processed/orders.parquet
+uv run python -m dp.demand             # price-response curves → data/processed/
+
 uv run uvicorn dp.api:app --reload     # http://localhost:8000
 
 curl "http://localhost:8000/price?user_id=user-42"

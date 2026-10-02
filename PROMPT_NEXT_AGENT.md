@@ -28,8 +28,9 @@ CONTEXT
     docker build job; every action pinned to a full commit SHA.
 - The target platform is Azure, but **nothing is deployed yet** and no cloud resource exists:
   `infra/` holds a README only, there is no deploy workflow and no Terraform state. The code
-  still carries AWS assumptions: `boto3` and `feast` are declared dependencies and neither is
-  imported anywhere.
+  still carries AWS assumptions: `boto3` and `feast` were declared dependencies, imported
+  nowhere; both were removed with the data phase. `redis` is still declared and still
+  referenced by `src/dp/store.py`, and goes when that store is rewritten.
 - `README.md`, `PLAN.md`, `docs/architecture.md` and `infra/README.md` describe the **target** end
   state (Cosmos DB, Container Apps, `POST /reward`, price clamping), not what the code does today.
   Reconcile them against reality; never read them as a description of the current implementation.
@@ -86,8 +87,8 @@ Report each PR as you land it.
 
 PR 1 — `chore/azure-dependencies`
 
-1. Replace the AWS dependencies: `uv remove boto3 feast redis`, then
-   `uv add azure-identity azure-cosmos`. Re-lock and confirm nothing imports the removed ones
+1. Replace the AWS dependencies: `uv remove redis`, then `uv add azure-identity azure-cosmos`.
+   Re-lock and confirm nothing imports the removed ones
    (`grep -rniE 'boto3|feast|dynamodb|elasticache' src tests` — no hits). Do not add
    `azure-keyvault-secrets`: there is no key vault and no secret in this design.
 

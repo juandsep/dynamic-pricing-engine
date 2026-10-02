@@ -93,6 +93,24 @@ Check: `uv run python -m dp.demand` prints the table, and a unit test on a hand-
 fixture asserts the elasticity of a known curve. A product with one price is dropped, not
 fitted — that is the failure this phase exists to prevent.
 
+Measured on the real download (`python -m dp.data` 9s, `python -m dp.demand` 3s):
+
+- 955,850 clean order lines become 126,354 (product, month, price) observations over 4,866
+  products; dropped at ingest: 111,521 rows.
+- 2,759 products fitted, 1,889 dropped for a single price point and 218 for too few
+  observations.
+- Median elasticity **−2.41** (p25 −3.21, p75 −1.75), 97.3% negative, median R² 0.53, median
+  5 price points per product.
+- Pooled behind a per-product intercept: −2.26, R² 0.46.
+- Held out after 2011-05-01: median R² **0.26** over 2,273 products, and 66% beat predicting
+  their own mean. The curve holds up for two products out of three and degrades for the rest.
+- By price tier the elasticity is flat (q1 −2.27, q2 −2.30, q3 −2.31, q4 −2.14), so a
+  product's price level is **not** a useful segment here — the product is. F2 calibrates per
+  product and falls back to the tier only where a product has too little price variation.
+- Bias to remember: prices moved in reaction to stock and season, not at random, so these
+  magnitudes are an upper bound on the causal elasticity. The simulator treats them as the
+  prior the bandit explores around, not as ground truth.
+
 ### F2 · Simulator with known propensities — `feat/simulator`
 
 - `src/dp/simulate.py` gains a generator: sample demand from the F1 fit, log the arm that was

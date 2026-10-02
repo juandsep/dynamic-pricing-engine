@@ -8,9 +8,8 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "boto3>=1.43.105",
+    "duckdb>=1.5.6",
     "fastapi>=0.142.0",
-    "feast>=0.66.0",
     "mlflow>=3.16.1",
     "numpy>=2.4.6",
     "pandas>=2.3.3",
@@ -30,6 +29,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "httpx>=0.27.0",
+    "openpyxl>=3.1.5",
     "pre-commit>=3.6.0",
     "pytest>=9.1.1",
     "pytest-cov>=6.0.0",
