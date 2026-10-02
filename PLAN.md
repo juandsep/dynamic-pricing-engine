@@ -9,15 +9,29 @@ Each phase below is one branch cut from `dev` and one pull request into `dev`
 
 ## Dataset
 
-**Chosen: UCI Online Retail II** — ~1M order lines from a UK online retailer (2009–2011):
-`InvoiceNo`, `StockCode`, `Description`, `Quantity`, `InvoiceDate`, `UnitPrice`,
-`CustomerID`, `Country`. Free, no account, plain HTTP download
-(`https://archive.ics.uci.edu/static/public/502/online+retail+ii.zip`, verified reachable), so
-CI can fetch it without a secret.
+**Chosen: UCI Online Retail II** — 1,067,371 order lines from a UK online retailer
+(December 2009 – December 2011), in one xlsx with two sheets (`Year 2009-2010`: 525,461 rows;
+`Year 2010-2011`: 541,910) and the columns `Invoice`, `StockCode`, `Description`, `Quantity`,
+`InvoiceDate`, `Price`, `Customer ID`, `Country`. 5,305 distinct products, 53,628 invoices,
+1.83% of invoices are cancellations and 22.8% of rows carry no customer id. Free, no account,
+plain HTTP download (`https://archive.ics.uci.edu/static/public/502/online+retail+ii.zip`,
+44 MB, verified reachable), so CI can fetch it without a secret.
 
 Why it works for pricing: the same product is sold at several price points over time, so a
-price–response curve is **identifiable**, and `Quantity` gives an outcome to maximise.
-`UnitPrice` is the price actually charged, not a list price.
+price–response curve is **identifiable**, and `Quantity` gives an outcome to maximise. `Price`
+is what was charged on the line, not a list price.
+
+Measured on the real download, after dropping returns, zero prices and cancelled invoices
+(1,041,670 rows left): **88.6% of products have ≥2 price points, 77.6% have ≥3**, median 4,
+and 99.2% of rows sit behind products with ≥2. The dataset clears the checklist below before
+any modelling.
+
+Two things F1 has to handle that only show up on the data: the `StockCode` column mixes
+products with non-product lines — `DOT` (postage), `POST`, `M` (manual), `ADJUST`, `CRUK`,
+`AMAZONFEE`, `BANK CHARGES`, single-letter and `PADS`-style codes — and some of them look like
+the most price-variable products in the file (`DOT` shows 1,290 distinct "prices"), so an
+unfiltered fit measures postage. And `Customer ID` is null on 22.8% of rows, which is fine for
+per-product curves and not fine for per-customer segments.
 
 Its one hard limit: **no propensities.** Nobody logged the probability of the price that was
 charged, so the log cannot be used for off-policy evaluation as it stands. The pipeline
@@ -67,8 +81,9 @@ SNIPS estimate of what a fixed price would have earned on the same traffic.
 ### F1 · Ingest and demand model — `feat/data-and-demand`
 
 - `scripts/fetch_data.sh` downloads the dataset into `data/raw/` (git-ignored).
-- `src/dp/data.py`: DuckDB reads both sheets, drops cancellations and non-positive
-  quantities, writes `data/processed/orders.parquet`.
+- `src/dp/data.py`: DuckDB reads both sheets, drops cancellations, non-positive quantities
+  and the non-product `StockCode`s named in the dataset section (postage, manual, adjustments),
+  writes `data/processed/orders.parquet`.
 - `src/dp/demand.py`: fits `log(quantity) ~ log(price)` per segment on a **time-based**
   held-out split, so the fit is never evaluated on the period it saw.
 - Reports per segment: elasticity, R², the number of distinct prices behind it, and how many
