@@ -53,7 +53,7 @@ evidence.
 | Cosmos DB | The posterior document, served arms and rewards | Azure, provisioned 1000 RU/s on the free tier |
 | MLflow | Experiment tracking and the policy registry | DagsHub, free hosted |
 | dp-api | FastAPI, `GET /price` and `POST /reward` | Container Apps, scales to zero |
-| GHCR | The API image, public package pulled anonymously | GitHub |
+| GHCR | The API image (383 MB: serving dependencies only, the pipeline stays out), public package pulled anonymously | GitHub |
 | GitHub Actions | CI on every pull request, deploy on `dev`, weekly retrain | GitHub |
 | Terraform | Everything above the subscription-scope bootstrap | local, applied and destroyed around a demo |
 
