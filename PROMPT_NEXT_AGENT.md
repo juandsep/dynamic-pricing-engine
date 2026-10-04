@@ -85,6 +85,10 @@ Each group below is one branch cut from `dev` and one pull request into `dev`. D
 into a single branch: one concern per branch and PR is a repository rule (`CONTRIBUTING.md`).
 Report each PR as you land it.
 
+The order to follow is `PLAN.md` (F1–F9), which is kept current; the two PRs below are the
+Azure half of it in more words. Where they disagree, `PLAN.md` wins — F1 already removed
+`boto3` and `feast`.
+
 PR 1 — `chore/azure-dependencies`
 
 1. Replace the AWS dependencies: `uv remove redis`, then `uv add azure-identity azure-cosmos`.
