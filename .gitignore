@@ -36,3 +36,6 @@ infra/tfplan
 .DS_Store
 .idea/
 .vscode/
+
+# Code graph (graphify, rebuilt by the vault refresh hook)
+graphify-out/
