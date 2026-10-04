@@ -6,10 +6,9 @@ line item. The prices behind the rejections below come from the Azure retail pri
 
 | Resource | Purpose | Cost |
 |---|---|---|
-| Container Apps Environment + App | runtime, ingress and revisions; min 0 replicas | 0 — inside the monthly free grant (180,000 vCPU-s, 360,000 GiB-s, 2M requests per subscription) |
-| Azure Cosmos DB (NoSQL, **provisioned 1000 RU/s**, free tier enabled at creation) | posterior, served arms, rewards and attributes | 0 — free tier covers the first 1000 RU/s and 25 GB for the lifetime of the account, one account per subscription |
+| Container Apps Environment + App | runtime, ingress and revisions; 0 to 1 replica, 0.25 vCPU / 0.5 GiB | 0 — inside the monthly free grant (180,000 vCPU-s, 360,000 GiB-s, 2M requests per subscription) |
+| Azure Cosmos DB (NoSQL, **provisioned 1000 RU/s** shared at database level, free tier enabled at creation, keys disabled) | `posteriors` and `events` containers | 0 — free tier covers the first 1000 RU/s and 25 GB for the lifetime of the account, one account per subscription |
 | Managed identity + Cosmos data-plane role assignment | lets the app read and write Cosmos with no connection string | 0 |
-| Log Analytics + Application Insights (optional) | logs, metrics and traces | 0 at demo volume — set the environment's log destination to `none` to skip it entirely |
 
 Deliberately **not** provisioned, and why:
 
@@ -227,9 +226,14 @@ gh secret   set MLFLOW_TRACKING_PASSWORD  # a DagsHub access token
 
 ### 8. Then Terraform
 
+Apply after the first image is in GHCR and the package is public: the Container App pulls it
+when it is created.
+
 ```bash
-cd infra && terraform init && terraform validate
+cd infra && cp terraform.tfvars.example terraform.tfvars   # subscription id and API key
+terraform init && terraform validate
 terraform plan  -var-file=terraform.tfvars && terraform apply -var-file=terraform.tfvars
+terraform output url
 ```
 
 The Cosmos account must be created with the free tier enabled: **one free-tier account per
@@ -258,7 +262,7 @@ az role assignment list --assignee "$APP_ID" --all -o table
 - No cloud credentials in state or anywhere else. Workloads authenticate with managed identities
   and data-plane role assignments; CI authenticates to Azure through OIDC federated credentials.
   The API key is a Container Apps secret, passed as a sensitive variable and never committed.
-- Log Analytics stays off by default (`logs_destination = none`): `az containerapp logs show`
+- No Log Analytics workspace is provisioned: `az containerapp logs show`
   streams the console during a demo, and nothing ingests or retains logs between demos.
 - Region: `eastus2`. Container Apps bills 2.4e-05 USD per vCPU-second and 3e-06 per GiB-second there;
   `spaincentral` and `westeurope` bill 3.4e-05 and 4e-06, about 42 % more on the same workload.

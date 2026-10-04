@@ -7,7 +7,8 @@ A static price cannot follow it.
 
 This repository assigns a price per request, treating each price level as an arm of a
 multi-armed bandit and solving it with Thompson Sampling: sample the Beta posterior of
-every arm for the customer's segment, serve the highest, observe the outcome, update.
+every price arm of the product, weight it by the arm's margin, serve the highest, observe
+the outcome, update.
 It is a portfolio project to practice the full MLOps loop on a zero budget — data
 ingestion, demand modelling, offline policy evaluation, experiment tracking, a model
 registry, a serving API, CI/CD and infrastructure as code on Azure.
@@ -15,46 +16,54 @@ registry, a serving API, CI/CD and infrastructure as code on Azure.
 - **Data:** UCI Online Retail II, about 1M order lines with the price actually charged
   and the quantity bought, fitted into a price–response model that acts as the
   simulator's ground truth.
-- **Model:** Thompson Sampling, one Beta posterior per price arm and segment, against a
-  fixed-price baseline, compared by regret and cumulative margin.
+- **Model:** Thompson Sampling, one Beta posterior per (product, price arm), against the
+  best fixed price, the price the retailer usually charged and a uniform policy, compared by
+  regret and share of the oracle's margin.
 - **Stack:** DuckDB, MLflow, FastAPI, Azure Container Apps, Cosmos DB, Terraform,
   GitHub Actions.
-- **Status:** foundations and the data contract are in; the policy still draws
-  uniformly, and the sections below describe the target end state
-  ([PLAN.md](PLAN.md) is the roadmap).
+- **Status:** pipeline, policy, serving API, tracking, drift, Terraform and CI/CD are
+  implemented and tested offline; the Azure stack is planned against a real subscription
+  and applied only around a demo ([PLAN.md](PLAN.md) has the phase-by-phase record).
 
 [![CI](https://github.com/juandsep/dynamic-pricing-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/juandsep/dynamic-pricing-engine/actions/workflows/ci.yml)
 
 ## Results
 
-Not measured yet: the policy serves a uniform draw, so any number here would be
-fabricated. The comparison the project reports once it runs:
+Top 50 products by units sold, five price arms each across the band the product really
+sold at, 20,000 requests per product; every policy faces the same requests and the same
+conversion draws (`uv run python -m dp.simulate`):
 
-| Policy | Regret vs oracle | Cumulative margin | Share of oracle |
+| Policy | Expected margin | Regret vs oracle | Share of oracle |
 |---|---|---|---|
-| Fixed price (baseline) | — | — | — |
-| Uniform random | — | — | — |
-| Thompson Sampling | — | — | — |
+| Oracle (best fixed price per product, knows the curve) | 55,161 | 0 | 100% |
+| **Thompson Sampling** | 51,776 | 3,385 | **93.9%** |
+| Modal price (what the retailer usually charged) | 34,165 | 20,996 | 61.9% |
+| Uniform random | 26,843 | 28,318 | 48.7% |
+
+Thompson's posterior settles on the oracle's arm in 46 of 50 products (median 910
+requests); the other four have their two best arms within 5% of each other.
 
 **Regret** is what the best fixed price in hindsight would have earned minus what the
-policy earned — the pricing equivalent of a Qini curve. Offline, the same comparison
-comes out of `python -m dp.simulate`, which replays a logged policy and estimates a
-fixed-price baseline by propensity weighting (SNIPS). Both paths are reported, because
-a simulator with known propensities and a real log with unknown ones are not the same
-evidence.
+policy earned — the pricing equivalent of a Qini curve. Read these numbers as a policy
+finding the optimum of a known world, not as money the retailer lost: the world is built
+from fitted elasticities that are an upper bound (prices were not randomised), with cost
+at half the modal price and 5% conversion at the median price, because the data has
+neither costs nor conversions. The uniform log the simulator writes, with known
+propensities, replays through the same `--events` path, where SNIPS recovers each arm's
+true margin.
 
 ## Architecture
 
 | Component | What it does | Runs on |
 |---|---|---|
-| Ingestion | Raw order lines to Parquet, price–response fitted per segment | DuckDB, local or GitHub Actions |
+| Ingestion and demand | Raw order lines to Parquet, a price–response curve per product | DuckDB, local or GitHub Actions |
 | `dp.simulate` | Simulator on the fitted curves (oracle, modal, uniform, Thompson), uniform log with known propensities, replay with SNIPS | anywhere, numpy |
-| Thompson policy | Beta posterior per price arm and segment, with price guards | the API process |
-| Cosmos DB | The posterior document, served arms and rewards | Azure, provisioned 1000 RU/s on the free tier |
+| Thompson policy | Beta posterior per (product, arm), with a price guard | the API process |
+| Cosmos DB | One posterior document per product, impressions and rewards | Azure, 1000 RU/s shared by both containers on the free tier, keys disabled |
 | MLflow | Experiment tracking and the policy registry | DagsHub, free hosted |
-| dp-api | FastAPI, `GET /price` and `POST /reward` | Container Apps, scales to zero |
+| dp-api | FastAPI, `GET /price`, `POST /reward`, `/metrics` | Container Apps, 0 to 1 replica |
 | GHCR | The API image (383 MB: serving dependencies only, the pipeline stays out), public package pulled anonymously | GitHub |
-| GitHub Actions | CI on every pull request, deploy on `dev`, retrain on demand | GitHub |
+| GitHub Actions | CI on every pull request; image to GHCR and OIDC deploy on `dev`; retrain on demand | GitHub |
 | Terraform | Everything above the subscription-scope bootstrap | local, applied and destroyed around a demo |
 
 Nothing bills while idle: every resource is free-tier, inside a per-subscription free
@@ -64,19 +73,20 @@ are in [infra/README.md](infra/README.md).
 
 ## Training pipeline
 
-1. **ingest** — DuckDB reads the raw CSVs and writes Parquet, keeping the price actually
-   charged on every order line.
-2. **demand** — fits a price–response curve per segment on a held-out time split. This is
-   the part that needs real data: without price variation in the log there is nothing to
-   estimate.
-3. **simulate** — generates a bandit log from the fitted demand with known propensities,
-   so a policy can be evaluated honestly before it ever serves a request.
-4. **compare** — runs the fixed price, a uniform random policy and Thompson Sampling over
-   the same log, one MLflow run each, and reports regret.
-5. **register** — registers the calibrated prior as a new immutable policy version;
-   nothing is overwritten.
-6. **replay** — `python -m dp.simulate` on the log, for the numbers in this README and for
-   the check that a change to the policy still beats the baseline.
+1. **ingest** (`dp.data`) — DuckDB reads both sheets of the workbook and writes Parquet,
+   keeping the price actually charged on every order line and dropping returns,
+   cancellations and non-product codes.
+2. **demand** (`dp.demand`) — fits a log-log price–response curve per product, scored on
+   the months after a time cut. This is the part that needs real data: without price
+   variation in the log there is nothing to estimate.
+3. **simulate** (`dp.simulate`) — turns each curve into a product with a known conversion
+   probability per arm, plays the oracle, the modal price, uniform and Thompson Sampling on
+   the same requests, and writes a uniform log with known propensities.
+4. **track and register** (`dp.retrain`) — one MLflow run per execution and one child per
+   policy; the best deployable policy is registered as a new immutable version, with the
+   catalogue it serves and the reference profile drift is measured against.
+5. **drift** (`dp.drift`) — PSI of an impression log against that reference profile, on the
+   product mix and on where in each product's band the served price sits.
 
 ## Serving
 
@@ -98,16 +108,18 @@ twice, and a reward for an arm that was never served is rejected. When the store
 written the endpoint answers **503** instead of a silent 200, because a lost outcome
 degrades learning while a false success corrupts it.
 
-The serving path never reads the model registry — it reads the posterior from the store —
-so the API needs no tracking credential. The request path, the failure behaviour and the
+The serving path never reads the model registry — the catalogue ships in the image and the
+posterior lives in the store — so the API needs no tracking credential. The request path, the failure behaviour and the
 ceiling behind the single-replica design are in [docs/architecture.md](docs/architecture.md).
 
 ## Model tracking and retraining
 
-Every pipeline run logs one parent MLflow run (dataset, policies compared, regret and
-margin of each) and one child run per policy, with the demand model and the log attached.
-Only the best policy is registered, and the feature table's SHA-256 is logged as a
-parameter so a policy can be traced to the exact data it saw.
+Every pipeline run logs one parent MLflow run (parameters, the curves and the simulated log
+attached) and one child run per policy with its regret, margin and share of the oracle.
+Only the best deployable policy is registered, and the SHA-256 of the feature table and of
+the curves are logged so a policy can be traced to the exact data it saw. Tracking is a
+local SQLite file by default and DagsHub's free MLflow server in CI (`retrain.yml`, manual
+trigger).
 
 UCI Online Retail II does not change, so retraining it reproduces the same numbers. With
 live traffic, retrain when a new randomised price test closes, when the margin measured on
@@ -189,7 +201,8 @@ demo and destroyed after.
 | `POLICY_VERSION` | `v1-thompson` | Policy version reported by `/price` and `/ready`, never a floating alias |
 
 No connection strings and no key vault: the service authenticates to Cosmos with its managed
-identity, and CI authenticates to Azure with OIDC federated credentials.
+identity, and CI authenticates to Azure with OIDC federated credentials. The one secret is
+`API_KEY`, a Container Apps secret set from Terraform.
 
 ## Project layout
 
@@ -218,4 +231,4 @@ are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
-**Stack:** Python 3.11 · uv · FastAPI · NumPy/SciPy · DuckDB · Azure Cosmos DB · MLflow · Azure Container Apps · GHCR · GitHub Actions
+**Stack:** Python 3.11 · uv · FastAPI · NumPy · DuckDB · pandas · MLflow · Prometheus client · Azure Cosmos DB · Azure Container Apps · Terraform · GHCR · GitHub Actions
