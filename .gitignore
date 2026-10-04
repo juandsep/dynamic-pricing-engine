@@ -42,3 +42,7 @@ graphify-out/
 
 # Agent instructions that stay on this machine
 CLAUDE.local.md
+
+# MLflow local tracking (MLFLOW_TRACKING_URI unset)
+mlflow.db
+mlruns/

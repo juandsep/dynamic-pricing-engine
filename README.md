@@ -142,10 +142,13 @@ uv run pytest -q
 scripts/fetch_data.sh                  # 44 MB into data/raw/ (git-ignored)
 uv run python -m dp.data               # clean both sheets → data/processed/orders.parquet
 uv run python -m dp.demand             # price-response curves → data/processed/
+uv run python -m dp.retrain            # simulate, track in MLflow, register the best policy
 
 uv run uvicorn dp.api:app --reload     # http://localhost:8000
 
-curl "http://localhost:8000/price?user_id=user-42"
+curl "http://localhost:8000/price?user_id=user-42&product=84077"
+curl -X POST http://localhost:8000/reward -H "content-type: application/json" \
+  -d '{"id": "r-1", "impression_id": "<from /price>", "converted": true, "margin": 0.3}'
 ```
 
 Simulate the four policies on the fitted curves and write a uniform log, then replay it
@@ -171,8 +174,8 @@ demo and destroyed after.
 | `COSMOS_DATABASE` | `pricing` | Database name |
 | `MLFLOW_TRACKING_URI` | `sqlite:///mlflow.db` | Tracking and registry backend |
 | `PRICE_MIN` / `PRICE_MAX` | `0.01` / `100` | Guard on every served price; the arms already sit inside each product's band |
-| `CATALOGUE_PATH` | `data/processed/catalogue.json` | Arms and unit cost per product, written by `python -m dp.simulate` |
-| `POLICY_VERSION` | none | Policy version to serve, never a floating alias |
+| `CATALOGUE_PATH` | `src/dp/catalogue.json` (in the package) | Arms and unit cost per product, written by `python -m dp.retrain` |
+| `POLICY_VERSION` | `v1-thompson` | Policy version reported by `/price` and `/ready`, never a floating alias |
 
 No connection strings and no key vault: the service authenticates to Cosmos with its managed
 identity, and CI authenticates to Azure with OIDC federated credentials.
@@ -181,11 +184,13 @@ identity, and CI authenticates to Azure with OIDC federated credentials.
 
 ```
 src/dp/
-  api.py           FastAPI app: /price, /reward, /health
+  api.py           FastAPI app: /price, /reward, /health, /ready
   thompson.py      Thompson Sampling policy
+  catalogue.json   the served arms and unit cost per product (written by dp.retrain)
+  retrain.py       pipeline run tracked in MLflow, best policy registered
   store.py         posterior and event store
   simulate.py      policy simulator, logged-bandit generator, offline replay
-scripts/           dataset download, retraining
+scripts/           dataset download
 docs/              architecture and data contract
 infra/             Terraform and the one-off bootstrap
 monitoring/        dashboards and drift checks

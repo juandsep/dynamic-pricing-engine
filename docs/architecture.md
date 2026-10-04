@@ -20,7 +20,7 @@ client ──▶ GET /price ──▶ ThompsonSampler ──▶ Store ──▶ 
 POST /reward (conversion, margin, LTV)
         │
         ▼
-Cosmos DB (posterior + durable events) ──▶ scripts/retrain.py ──▶ MLflow (metrics + registry)
+Cosmos DB (posterior + durable events) ──▶ python -m dp.retrain ──▶ MLflow (metrics + registry)
         ▲                                                             │
         └──────────── posterior recalibration ◀───────────────────────┘
 ```
