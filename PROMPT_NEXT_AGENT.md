@@ -1,194 +1,180 @@
-# Next-agent prompt — migrate the Dynamic Pricing Engine to Azure
+# Next-agent prompt — Dynamic Pricing Engine
 
-Copy everything below the line into the next agent's first message.
+Copia todo lo que hay bajo la línea en el primer mensaje del agente siguiente.
+
+Este fichero se borra en la fase F9: el prompt debe morir con la migración. El orden de trabajo
+vigente es `PLAN.md`; donde los dos se contradigan, gana `PLAN.md`.
+
+Va en español a propósito: los prompts de handoff son la única excepción a la regla de que todo el
+contenido del repositorio está en inglés. No lo traduzcas.
 
 ---
 
-CONTEXT
+CONTEXTO
 
-- Repository: `juandsep/dynamic-pricing-engine` (the local folder carries the same name).
-  Work only inside that folder.
-- Python project managed with **uv** (`pyproject.toml` + `uv.lock`). Console script: `uv run dp`.
-- Branch model: `main` (releases) ← `dev` (integration) ← topic branches cut from `dev`.
-  Cut your branch from `dev`; `main` only receives PRs from `dev`.
-- Current state (all green: `uv run pytest -q`, `uv run ruff check .`,
-  `uv run ruff format --check .`, docker build):
-  - `src/dp/{__init__,api,thompson,store}.py` — FastAPI app with `/price` and `/health`,
-    a Thompson Sampling placeholder (uniform draw inside `PRICE_MIN`/`PRICE_MAX`) and a
-    feature-store wrapper that still carries an unused Redis client plus a `record_event`
-    that raises `NotImplementedError`.
-  - `src/dp/simulate.py` — offline replay of a logged policy: validates the log, joins
-    rewards onto impressions, reports per-arm coverage/conversion/margin and a SNIPS
-    estimate of a fixed-price baseline. Stdlib only.
-  - `tests/unit/` and `tests/integration/` (TestClient; no external services, no credentials).
-  - `scripts/retrain.py`, `docker/Dockerfile` (multi-stage, non-root, healthcheck, `PORT=8000`),
-    `docs/architecture.md`, `docs/data-contract.md`, `infra/`, `monitoring/`, `PLAN.md`,
-    `CONTRIBUTING.md`.
-  - `.github/workflows/ci.yml` — test job (`uv sync --locked`, ruff, pytest with coverage) and a
-    docker build job; every action pinned to a full commit SHA.
-- The target platform is Azure, but **nothing is deployed yet** and no cloud resource exists:
-  `infra/` holds a README only, there is no deploy workflow and no Terraform state. The code
-  still carries AWS assumptions: `boto3` and `feast` were declared dependencies, imported
-  nowhere; both were removed with the data phase. `redis` is still declared and still
-  referenced by `src/dp/store.py`, and goes when that store is rewritten.
-- `README.md`, `PLAN.md`, `docs/architecture.md` and `infra/README.md` describe the **target** end
-  state (Cosmos DB, Container Apps, `POST /reward`, price clamping), not what the code does today.
-  Reconcile them against reality; never read them as a description of the current implementation.
-  They do define the intended architecture and the cost envelope — do not re-open those decisions.
-- Reference for structure and conventions: `uplift-modeling-pipeline`, a sibling project in the
-  same portfolio. Mirror its layout, its CONTRIBUTING conventions and its Dockerfile pattern.
-  Note that it ships a **separate** `deploy.yml` next to `ci.yml`, not a deploy job inside it.
-  It is a GCP project: mirror its *conventions*, not its providers.
+- Repositorio: `juandsep/dynamic-pricing-engine` (la carpeta local tiene el mismo nombre).
+  Trabaja solo dentro de esa carpeta.
+- Proyecto Python con **uv** (`pyproject.toml` + `uv.lock`). Script de consola: `uv run dp`.
+- Ramas: `main` (releases) ← `dev` (integración) ← ramas de trabajo cortadas de `dev`.
+  Corta siempre de `dev`; `main` solo recibe PRs desde `dev`. Una preocupación por rama y PR.
+- Fuente de verdad del plan: `PLAN.md` (bloque `## Status` + fases F1–F9 con su criterio de
+  cierre). `README.md`, `PLAN.md`, `docs/architecture.md` e `infra/README.md` describen el estado
+  **objetivo** y las decisiones ya tomadas: reconcilia, pero no re-abras esas decisiones.
+- Referente de estructura y convenciones: `uplift-modeling-pipeline`, proyecto hermano en el mismo
+  portfolio (GCP: espeja sus *convenciones*, nunca sus providers). Publica un `deploy.yml` aparte,
+  no un job de deploy dentro de `ci.yml`.
 
-OBJECTIVE
+ESTADO ACTUAL (mergeado en `dev`, HEAD `8bf5b31`)
 
-Make the repository genuinely Azure-native: infrastructure as code, an Azure SDK based feature
-store, and a CI/CD pipeline that builds, publishes and deploys. Leave no AWS assumption in the
-repository. Keep the monthly cost at zero.
+- F0 (fundaciones), F0.5 (contrato de datos + replay offline) y F1 (ingesta + modelo de demanda).
+  24 tests en verde, ruff limpio, CI verde.
+- Existe: `scripts/fetch_data.sh`, `src/dp/data.py` (ingesta DuckDB de las dos hojas a Parquet),
+  `src/dp/demand.py` (curvas de precio por producto, medidas fuera de muestra), `src/dp/simulate.py`
+  (replay de un log), FastAPI `GET /price` y `/health`, `docs/data-contract.md`, `docs/architecture.md`,
+  `docker/Dockerfile` (multi-stage, non-root, `PORT=8000`), `scripts/retrain.py`, `infra/README.md`
+  con el bootstrap manual, `.github/workflows/ci.yml` (test + docker, acciones pinneadas a SHA).
+- Siguen siendo stubs: `src/dp/thompson.py` (sortea uniforme dentro de `PRICE_MIN`/`PRICE_MAX`) y
+  `FeatureStore.record_event` (lanza `NotImplementedError`). `redis` sigue declarado y en uso en
+  `store.py`; `boto3` y `feast` ya se eliminaron en F1.
+- **La data no viaja con el repo** (`data/` está en `.gitignore`). Regenerar y verificar
+  reproducción antes de tocar nada:
 
-STACK DECISIONS (use these; they are settled, with the price that decided each one)
+      scripts/fetch_data.sh          # 44 MB → data/raw/ (si el fichero está, se salta)
+      uv run python -m dp.data       # 9s  → data/processed/orders.parquet
+      uv run python -m dp.demand     # 3s  → data/processed/demand_curves.parquet + demand_summary.json
 
-- Compute: **Azure Container Apps**, consumption plan, minimum replicas 0. Free grant: the first
-  180,000 vCPU-seconds, 360,000 GiB-seconds and 2M requests per subscription per calendar month.
-  A revision scaled to zero is not billed.
-- Region: **`eastus2`**. Container Apps bills 2.4e-05 USD per vCPU-second and 3e-06 per
-  GiB-second there; `spaincentral` and `westeurope` bill 3.4e-05 and 4e-06 — about 42 % more.
-- Images: **GHCR**, public package, pulled anonymously. Azure Container Registry Basic costs
-  0.1666 USD/day (~5.03 USD/month) and bills even with nothing deployed, so there is no ACR.
-- Store: **Azure Cosmos DB (NoSQL), provisioned 1000 RU/s, free tier opted into at account
-  creation** — the first 1000 RU/s and 25 GB are free for the lifetime of the account, one account
-  per subscription. It holds the posterior, the durable events and the attributes.
-  **Free tier does not apply to serverless accounts**; do not create a serverless account.
-- No Redis. Azure Cache for Redis Basic C0 costs 0.0275 USD/hour (~20 USD/month) and the service
-  runs a single replica, where the posterior document in Cosmos is equivalent. `docs/architecture.md`
-  carries the `ponytail:` marker with the upgrade path.
-- No Key Vault, and no secrets anywhere: the app authenticates to Cosmos with its **managed identity**
-  plus a Cosmos data-plane role assignment, and CI authenticates with **OIDC federated credentials**.
-- Model tracking: **MLflow hosted free on DagsHub** (`MLFLOW_TRACKING_URI` +
-  `MLFLOW_TRACKING_USERNAME`/`MLFLOW_TRACKING_PASSWORD` from a GitHub secret). Self-hosted MLflow
-  would need an always-on backend (~15-20 USD/month), Azure ML would not be free either.
-- Observability: Application Insights and Log Analytics are optional at this stage; the free
-  ingestion grant covers a demo by orders of magnitude. The Container Apps environment also accepts
-  `--logs-destination none`, which removes the workspace entirely.
-- Everything is **ephemeral**: `terraform apply` before a demo, `terraform destroy` after. Terraform
-  state stays local (`infra/*.tfstate` is git-ignored); a remote state storage account would be the
-  one resource nobody ever destroys.
-- **Budget: a subscription budget fixed at 10 USD/month, with notifications at 50 %, 90 % and 100 %.**
-  It is set with the Azure CLI, outside Terraform, and it is a tripwire rather than a hard stop
-  (an Azure budget only alerts). A non-zero bill means a resource outlived its demo.
-- Do not add a resource whose cost is debated in the PR. If you believe one of the rejections above
-  is wrong, say so with the current price from the Azure retail prices API and let the human decide.
+  Números que debe reproducir (si no salen, para y averigua por qué antes de seguir): 955.850
+  líneas limpias, 4.866 productos, panel de 126.354 observaciones, 2.759 curvas ajustadas (1.889
+  descartadas por un solo precio, 218 por pocas observaciones), elasticidad mediana −2,41, R²
+  mediano 0,53 dentro de muestra y 0,26 fuera (corte 2011-05-01), pooled −2,26, por tramo de precio
+  −2,27 / −2,30 / −2,31 / −2,14.
 
-TASKS — as a sequence of pull requests, one concern each
+HALLAZGOS DE F1 QUE CONDICIONAN LO QUE VIENE
 
-Each group below is one branch cut from `dev` and one pull request into `dev`. Do not collapse them
-into a single branch: one concern per branch and PR is a repository rule (`CONTRIBUTING.md`).
-Report each PR as you land it.
+- El segmento con información es el **producto**, no su tramo de precio: la elasticidad salió plana
+  entre tramos (0,17 de recorrido).
+- El R² fuera de muestra es la mitad que el de dentro: la curva aguanta en dos de cada tres
+  productos y se degrada en el resto. No asumas curva estable en todo el catálogo.
+- Los precios son observacionales (se movieron por stock y temporada, no al azar): las magnitudes
+  son cota superior de la elasticidad causal. El simulador las usa como prior a explorar, nunca
+  como verdad.
+- No hay propensiones en la data: la evaluación off-policy requiere simular el log (F2).
 
-The order to follow is `PLAN.md` (F1–F9), which is kept current; the two PRs below are the
-Azure half of it in more words. Where they disagree, `PLAN.md` wins — F1 already removed
-`boto3` and `feast`.
+SIGUIENTE PASO — F2, rama `feat/simulator`
 
-PR 1 — `chore/azure-dependencies`
+1. Generador en `src/dp/simulate.py`: muestrea demanda desde el ajuste de F1, registra el brazo
+   servido **con su propensión** y emite un log en el formato de `docs/data-contract.md`.
+2. Rejugar sobre el mismo log cuatro políticas: mejor precio fijo (oráculo), precio modal,
+   uniforme y Thompson Sampling.
+3. Salida: regret contra el oráculo, margen acumulado, % del oráculo y cuántas peticiones necesitó
+   cada brazo hasta que el posterior se asentó.
 
-1. Replace the AWS dependencies: `uv remove redis`, then `uv add azure-identity azure-cosmos`.
-   Re-lock and confirm nothing imports the removed ones
-   (`grep -rniE 'boto3|feast|dynamodb|elasticache' src tests` — no hits). Do not add
-   `azure-keyvault-secrets`: there is no key vault and no secret in this design.
+Dos decisiones a cerrar aquí y dejar escritas:
 
-PR 2 — `feat/azure-feature-store`
+- Los brazos son **precios absolutos** dentro de la banda real de cada producto (la curva trae
+  `median_price`), no un 1–100 global: con un arm genérico el regret no significa nada.
+- El posterior es **por producto con los brazos dentro** (≈2.759 documentos), no por
+  (brazo × segmento de precio) (≈52.000). Para la demo se puede limitar a los 50 productos con más
+  unidades.
 
-2. Implement `FeatureStore.record_event` against Cosmos DB. Keep the published interface
-   (`get_features`, `set_features`) unchanged, and delete the Redis client and the `REDIS_URL`
-   handling while you are in the file — it is dead code once the dependency is gone.
-   - Authenticate with `DefaultAzureCredential` (managed identity in Azure); never a stored key.
-     The endpoint comes from `COSMOS_ENDPOINT` / `COSMOS_DATABASE`, and a missing endpoint must be
-     **lazy and fail-open**: no network call at import time, no failure when the variables are
-     unset, no credential requirement in tests. The suite and the Docker build must keep passing
-     with no Azure credentials present — an acceptance condition, not a nicety.
-   - Idempotency and the event schema are already defined in `docs/data-contract.md`. Implement
-     them as written; if the contract is wrong, change the contract in the same PR and say why.
+Criterio de cierre: en un log simulado con óptimo conocido, el oráculo gana por construcción y
+Thompson converge a él dentro del presupuesto muestral. Ese assert es la fase; un test que solo
+compruebe que el fichero se generó no la cierra.
 
-PR 3 — `feat/thompson-policy-and-reward`
+DESPUÉS (detalle en `PLAN.md`)
 
-3. Implement the real policy in `thompson.py`: one Beta posterior per (price arm, segment), sample
-   every arm, return the argmax, clamp to `PRICE_MIN` / `PRICE_MAX`.
-   - Posteriors live in the **store**, not in process memory, as one document per (arm, segment).
-     The service runs one replica, so the store is what keeps learning consistent across restarts;
-     `docs/architecture.md` states the reasoning and the ceiling.
-4. Add `POST /reward` so observed outcomes update the posterior and are written to Cosmos DB.
-   State the contract in the PR: request body schema, rejection of a reward for an arm that was
-   never served, an idempotency key so a retried reward cannot update the posterior twice, and
-   whether the Cosmos write happens before or after the 200. A reward that cannot be persisted is
-   **503**, never a silent 200 (`docs/architecture.md`, *Failure behaviour*).
-5. Log the retrained policy and its metrics to MLflow at `MLFLOW_TRACKING_URI`. The serving path
-   must not read the registry at runtime — it reads the posterior from the store — so the service
-   needs no tracking credentials at all.
+- F3 `feat/thompson-policy` — Thompson real (Beta por brazo, argmax, clamp), posterior persistido,
+  `record_event` contra Cosmos con `DefaultAzureCredential`, fuera Redis.
+- F4 `feat/mlflow-and-reward` — un run padre por ejecución y un hijo por política en MLflow, la
+  SHA-256 de la tabla de features como parámetro, registrar solo la mejor; `POST /reward`
+  idempotente por request id, 4xx si el brazo nunca se sirvió, **503** si no se puede persistir;
+  `GET /ready` con la versión de política servida.
+- F5 `feat/serving-contract` — límites de tamaño de petición, rate limit por instancia (429),
+  versión de política en la respuesta, contador de violaciones de suelo/techo de precio como métrica.
+- F6 `feat/azure-infrastructure` — Terraform `azurerm`: resource group, Container Apps environment
+  y app (ingress target port **8000**, min replicas 0), Cosmos NoSQL provisioned 1000 RU/s con free
+  tier activado, managed identity + asignación de rol de data plane, Log Analytics/App Insights
+  opcionales.
+- F7 `feat/cicd-azure-deploy` — `deploy.yml` separado de `ci.yml` (push a `dev` → imagen a GHCR con
+  el `GITHUB_TOKEN` → `az containerapp update`), `permissions: id-token: write`, grupo de
+  `concurrency`, `environment: staging`, preflight que falla en voz alta si una variable está vacía,
+  acciones pinneadas a SHA; `retrain.yml` con cron semanal y `workflow_dispatch`.
+- F8 `feat/monitoring-demo` — PSI sobre la mezcla de tráfico y la distribución de precios servidos,
+  contra un `reference_profile.json` guardado junto a la política registrada; demo estática.
+- F9 `docs/azure-reality` — reconciliar `README.md`, `PLAN.md`, `docs/architecture.md` e
+  `infra/README.md` con lo implementado, rellenar la tabla *Results* con números reales y **borrar
+  este fichero**.
 
-PR 4 — `feat/azure-infrastructure`
+DECISIONES DE STACK (cerradas; no las re-abras sin precio actual de la API de precios de Azure)
 
-6. Replace `infra/` with Terraform (`azurerm`): `main.tf`, `variables.tf`, `outputs.tf`,
-   `terraform.tfvars.example` covering the resource group, the Container Apps environment and app,
-   Cosmos DB (NoSQL, provisioned 1000 RU/s, free tier enabled), the managed identity with its Cosmos
-   data-plane role assignment, and optionally Log Analytics and Application Insights.
-   - Declare `required_providers` with a pinned `azurerm` version.
-   - The Container App ingress target port must be **8000**, matching `docker/Dockerfile`
-     (`ENV PORT=8000`); a probe against the wrong port fails the revision.
-   - The image is a public GHCR package: no registry credentials in the app configuration.
-   - Verify with `terraform init && terraform validate` inside `infra/` (`validate` alone fails
-     without `init`). `infra/terraform.tfvars`, `infra/*.tfstate` and `infra/.terraform/` are
-     already git-ignored.
-   - This machine has no `az` CLI, so `terraform plan`/`apply` and `az containerapp update` cannot
-     be exercised locally. Say so plainly instead of reporting a plan that never ran.
+- Compute: **Azure Container Apps**, consumo, min replicas 0. Grant: 180.000 vCPU-s, 360.000 GiB-s
+  y 2M peticiones por suscripción y mes. Una revisión escalada a cero no factura.
+- Región: **`eastus2`** (ACA factura 2,4e-05 USD/vCPU-s y 3e-06/GiB-s; `spaincentral` y `westeurope`
+  3,4e-05 y 4e-06, ~42 % más).
+- Imágenes: **GHCR**, paquete público, pull anónimo. ACR Basic son 0,1666 USD/día (~5,03 USD/mes)
+  y factura aunque no haya nada desplegado.
+- Store: **Cosmos DB NoSQL provisioned 1000 RU/s con free tier activado al crear** — 1000 RU/s y
+  25 GB gratis de por vida, una cuenta por suscripción. **El free tier no aplica a serverless.**
+- **Sin Redis**: Azure Cache for Redis C0 son 0,0275 USD/h (~20 USD/mes) para un solo réplica, donde
+  el documento de posterior en Cosmos es equivalente. `docs/architecture.md` lleva el marcador
+  `ponytail:` con la vía de escape.
+- **Sin Key Vault y sin secretos**: managed identity + RBAC de data plane; CI por **OIDC federado**.
+- Tracking: **MLflow alojado gratis en DagsHub**. Self-hosted necesita backend siempre encendido
+  (~15-20 USD/mes).
+- Todo **efímero**: `terraform apply` antes de una demo, `terraform destroy` después. El state se
+  queda local (`infra/*.tfstate` ignorado).
+- **Presupuesto: 10 USD/mes por suscripción con avisos al 50 %, 90 % y 100 %** (ya creado, vía REST,
+  fuera de Terraform). Es un aviso, no un corte: una factura distinta de cero significa un recurso
+  que sobrevivió a su demo.
+- No añadas un recurso cuyo coste se discuta en el PR. Si crees que algún rechazo de arriba es
+  erróneo, dilo con el precio actual de la API y que decida la persona.
 
-PR 5 — `feat/cicd-azure-deploy`
+QUÉ HACE FALTA DEL USUARIO (acciones sobre su suscripción, el agente no puede hacerlas)
 
-7. Add `.github/workflows/deploy.yml`, separate from `ci.yml`, mirroring the reference project's
-   deploy workflow: triggered by pushes to `dev`, with `permissions: id-token: write` (required by
-   `azure/login` OIDC — without it the login fails) plus `packages: write` to publish to GHCR, a
-   `concurrency` group, an `environment: staging`, and a preflight step that fails loudly when a
-   required variable is empty. Pin every action to a full commit SHA, as `ci.yml` does.
-   - Build and push the image to GHCR with the built-in `GITHUB_TOKEN` (no new secret), then
-     `az containerapp update`.
-   - Pin the served policy version through an explicit variable (the reference project does this
-     with `MODEL_VERSION`); never a floating alias (`CONTRIBUTING.md`).
-8. Add `.github/workflows/retrain.yml`: a scheduled job with an explicit cron expression running
-   `uv run python scripts/retrain.py` and registering the recalibrated policy in MLflow.
-   - Add `workflow_dispatch` so the job can be run on demand, and list the variables and secrets it
-     needs behind the same preflight guard: `MLFLOW_TRACKING_URI`, `MLFLOW_TRACKING_USERNAME`,
-     `MLFLOW_TRACKING_PASSWORD`, `COSMOS_ENDPOINT`.
+- F2–F5: nada. Todo corre en local, sin cloud y sin gastar.
+- F6–F7: `brew install azure-cli && az login && az account show`, y los pasos de `infra/README.md`:
+  providers, RG `rg-dp-staging` en `eastus2`, **dos** federated credentials (`repo:juandsep/dynamic-pricing-engine:ref:refs/heads/dev`
+  y `...:environment:staging`), rol Contributor acotado al RG, y los 3 secrets en GitHub:
+  `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`.
+- Esta máquina **no tiene `az`**: `terraform plan`/`apply` y `az containerapp update` no se pueden
+  ejercitar en local. Dilo claramente en vez de reportar un plan que nunca corrió.
+- F8: cuenta de Hugging Face si se quiere demo pública.
 
-PR 6 — `docs/azure-reality`
+TRAMPAS YA PISADAS (no repetirlas)
 
-9. Update `README.md`, `PLAN.md`, `docs/architecture.md` and `infra/README.md` to describe what is
-   implemented: reconcile the aspirational sections, the environment-variable table and the
-   `POST /reward` contract with the code.
-10. Delete `PROMPT_NEXT_AGENT.md` in this PR. The migration prompt must not survive the migration,
-    and acceptance criterion 4 cannot hold while it does.
+- `read_xlsx` de DuckDB: tipos mezclados dentro de una columna (muere en la celda `A143`) →
+  `all_varchar = true` y cast en SQL. No existe el parámetro `columns`. Con `all_varchar` las fechas
+  llegan como **serial de Excel** (`1899-12-30 + serial·86400`).
+- `WITH` dentro de una rama de `UNION ALL` es SQL inválido; `CREATE TABLE AS WITH ...` también.
+- `StockCode` mezcla productos con `DOT`, `POST`, `M`, `ADJUST`, `AMAZONFEE`; `DOT` aparece con
+  1.290 "precios". Filtro `^\d{5}[A-Za-z]{0,3}$`.
+- UCI estrangula descargas repetidas (~11 KB/s frente a segundos la primera vez): el fichero se
+  cachea en `data/raw/`.
+- Skill `duckdb-data-ingest` con el detalle de todo esto; cárgala antes de tocar la ingesta.
 
-Verify in PR 6: `uv sync --locked`, `uv run ruff check . && uv run ruff format --check .`,
-`uv run pytest -q`, `docker build -f docker/Dockerfile -t dynamic-pricing-engine:ci .` and
-`terraform init && terraform validate` inside `infra/`.
+REGLAS
 
-RULES
+- Todo el contenido del repositorio en **inglés** (código, comentarios, docs, commits). Las
+  respuestas del chat, en español.
+- Conventional Commits en imperativo. Una preocupación por rama y por PR.
+- **Ningún recurso de Azure puede llevar un cargo mensual fijo.** Todo free tier, dentro de un
+  grant, o destruido cuando no se usa. Un PR que introduzca una partida fija se rechaza aunque sea
+  técnicamente correcto.
+- Sin secretos en el repositorio y sin claves de cloud en CI: managed identity, RBAC de data plane,
+  OIDC. Nunca push directo a `main`.
+- Tests 100 % offline: la suite entera pasa sin credenciales de Azure. La integración con Cosmos se
+  escribe diferida y fail-open, sin llamada de red al importar.
+- Antes de cada commit: `uv run ruff check . && uv run ruff format .` y los 10 hooks de pre-commit.
+- Toda afirmación de "verde" en el reporte sale de un comando que se ejecutó de verdad, con su
+  salida real. Nada de resultados inventados.
 
-- Everything in the repository is written in **English** (code, comments, docs, commits).
-- Conventional Commits, imperative mood. One concern per branch and per PR.
-- **No Azure resource may carry a fixed monthly charge.** Everything is free-tier, inside a
-  per-subscription free grant, or destroyed while idle. A PR that introduces a recurring line item
-  is rejected even if it is technically correct.
-- No secrets in the repository and no cloud keys in CI: managed identity, data-plane RBAC, OIDC.
-- Never push directly to `main`; open a PR into `dev`.
-- Every green claim in your report must come from a command you actually ran, with its real output.
+CRITERIOS DE ACEPTACIÓN DEL PROYECTO
 
-ACCEPTANCE CRITERIA
-
-- `uv run pytest -q`, `uv run ruff check .` and `uv run ruff format --check .` pass, and the Docker
-  image builds — with no Azure credentials and no reachable cloud service.
-- `terraform validate` passes for the Azure configuration (after `terraform init`).
-- CI publishes the image to GHCR and updates the Container App on `dev`, authenticated through OIDC.
-- No resource in `infra/` has a fixed monthly cost, and no file in the repository provisions Redis,
-  ACR, Key Vault, serverless Cosmos or a self-hosted MLflow backend.
-- No file in the repository mentions AWS, ECS, ECR, ElastiCache or DynamoDB. Checked after PR 6,
-  which deletes `PROMPT_NEXT_AGENT.md` — today the only remaining place those words appear, next
-  to `pyproject.toml`.
+- `uv run pytest -q`, `uv run ruff check .` y `uv run ruff format --check .` pasan, y la imagen
+  Docker construye — sin credenciales de Azure y sin servicio cloud alcanzable.
+- `terraform validate` pasa para la configuración de Azure (después de `terraform init`).
+- CI publica la imagen en GHCR y actualiza el Container App en `dev`, autenticado por OIDC.
+- Ningún recurso en `infra/` tiene coste mensual fijo, y ningún fichero del repositorio provisiona
+  Redis, ACR, Key Vault, Cosmos serverless ni un backend MLflow self-hosted.
+- Ningún fichero menciona AWS, ECS, ECR, ElastiCache ni DynamoDB. Se comprueba tras F9, que borra
+  este fichero — hoy es el único sitio donde siguen apareciendo esas palabras.
