@@ -25,6 +25,7 @@ import mlflow
 
 from dp.data import ORDERS_PARQUET
 from dp.demand import CURVES_PARQUET
+from dp.drift import profile_from_pulls
 from dp.simulate import (
     BASE_CONVERSION,
     COST_SHARE,
@@ -113,6 +114,13 @@ def run(
             policy = Path(tmp) / "policy.json"
             policy.write_text(json.dumps({"policy": best.policy}) + "\n")
             mlflow.log_artifact(str(policy), "policy")
+            # What the registered policy served in simulation: the baseline dp.drift
+            # compares live traffic against.
+            reference = Path(tmp) / "reference_profile.json"
+            reference.write_text(
+                json.dumps(profile_from_pulls(world.codes, best.pulls), indent=2) + "\n"
+            )
+            mlflow.log_artifact(str(reference), "policy")
         mlflow.log_artifact(str(catalogue), "policy")
         source = mlflow.get_artifact_uri("policy")
 

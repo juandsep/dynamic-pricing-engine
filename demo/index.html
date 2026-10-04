@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dynamic Pricing Demo</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --series-1: #2a78d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface: #1a1a19;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --series-1: #3987e5;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface: #1a1a19;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --series-1: #3987e5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--surface);
+    color: var(--text-primary);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 2px; }
+  p { margin: 0 0 12px; color: var(--text-secondary); }
+  .note { font-size: 13px; }
+  section { margin-top: 32px; }
+  .policies { display: grid; gap: 8px; margin-top: 12px; }
+  .policy { display: grid; grid-template-columns: 96px 1fr 56px; align-items: center; gap: 12px; }
+  .policy .track { height: 12px; }
+  .policy .bar { height: 12px; background: var(--series-1); border-radius: 0 4px 4px 0; }
+  .policy .value { text-align: right; font-variant-numeric: tabular-nums; }
+  .controls { display: flex; gap: 8px; align-items: center; margin: 12px 0 4px; }
+  select {
+    font: inherit; color: var(--text-primary); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px;
+  }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 12px; }
+  @media (max-width: 640px) { .charts { grid-template-columns: 1fr; } }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  svg text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  svg text.label { fill: var(--text-primary); font-size: 11px; }
+  .hit { fill: transparent; cursor: default; }
+  .hit:hover + .mark, .mark.active { opacity: 0.8; }
+  #tooltip {
+    position: fixed; pointer-events: none; display: none; z-index: 1;
+    background: var(--surface); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
+    font-size: 13px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  }
+  details { margin-top: 16px; }
+  table { border-collapse: collapse; font-size: 13px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 4px 12px 4px 0; text-align: right; border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child { text-align: left; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Dynamic pricing with Thompson Sampling</h1>
+  <p>Each product gets five prices across the band it really sold at (UCI Online Retail II).
+    A price-response curve fitted on that data decides how often each price converts, and four
+    policies face the same 20,000 requests per product.</p>
+  <p class="note" id="assumptions"></p>
+
+  <section>
+    <h2>Margin earned, as a share of the best fixed price</h2>
+    <p class="note">The oracle knows the true curve; the others have to learn it or ignore it.</p>
+    <div class="policies" id="policies"></div>
+  </section>
+
+  <section>
+    <h2>One product</h2>
+    <div class="controls">
+      <label for="product">Product</label>
+      <select id="product"></select>
+    </div>
+    <div class="charts">
+      <div>
+        <p class="note">Expected margin per request at each price</p>
+        <svg id="truth" viewBox="0 0 400 220" role="img"></svg>
+      </div>
+      <div>
+        <p class="note">Share of requests Thompson Sampling sent to each price</p>
+        <svg id="learned" viewBox="0 0 400 220" role="img"></svg>
+      </div>
+    </div>
+    <details>
+      <summary>Table</summary>
+      <table id="table"></table>
+    </details>
+  </section>
+</main>
+<div id="tooltip"></div>
+
+<script>
+const W = 400, H = 220, PAD = { top: 24, right: 8, bottom: 32, left: 44 };
+const tooltip = document.getElementById("tooltip");
+const NS = "http://www.w3.org/2000/svg";
+
+function el(name, attrs, text) {
+  const node = document.createElementNS(NS, name);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function niceMax(value) {
+  if (value <= 0) return 1;
+  const step = Math.pow(10, Math.floor(Math.log10(value)));
+  return Math.ceil(value / step) * step;
+}
+
+// Column with a 4px rounded data end and a square base on the baseline.
+function columnPath(x, y, w, h) {
+  const r = Math.min(4, h, w / 2);
+  return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}` +
+    `Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
+}
+
+function barChart(svg, { labels, values, format, tickFormat, marks, describe }) {
+  svg.replaceChildren();
+  const plotW = W - PAD.left - PAD.right, plotH = H - PAD.top - PAD.bottom;
+  const max = niceMax(Math.max(...values));
+  const y = v => PAD.top + plotH - (v / max) * plotH;
+  for (let i = 0; i <= 2; i++) {
+    const v = (max / 2) * i, yy = y(v);
+    if (i > 0) svg.append(el("line", { x1: PAD.left, x2: W - PAD.right, y1: yy, y2: yy, stroke: "var(--grid)" }));
+    svg.append(el("text", { x: PAD.left - 6, y: yy + 4, "text-anchor": "end" }, tickFormat(v)));
+  }
+  svg.append(el("line", { x1: PAD.left, x2: W - PAD.right, y1: y(0), y2: y(0), stroke: "var(--baseline)" }));
+  const band = plotW / values.length, barW = Math.min(24, band * 0.6);
+  values.forEach((v, i) => {
+    const cx = PAD.left + band * (i + 0.5), top = y(v), h = y(0) - top;
+    const hit = el("rect", { class: "hit", x: cx - band / 2, y: PAD.top, width: band, height: plotH });
+    const mark = el("path", { class: "mark", d: columnPath(cx - barW / 2, top, barW, Math.max(h, 0)), fill: "var(--series-1)" });
+    hit.addEventListener("mousemove", e => {
+      tooltip.innerHTML = describe(i);
+      tooltip.style.display = "block";
+      tooltip.style.left = `${e.clientX + 12}px`;
+      tooltip.style.top = `${e.clientY + 12}px`;
+    });
+    hit.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+    svg.append(hit, mark);
+    svg.append(el("text", { x: cx, y: H - PAD.bottom + 16, "text-anchor": "middle" }, labels[i]));
+    if (marks[i]) svg.append(el("text", { class: "label", x: cx, y: top - 6, "text-anchor": "middle" }, `${marks[i]} ${format(v)}`));
+  });
+  svg.setAttribute("aria-label", labels.map((l, i) => `${l}: ${format(values[i])}`).join(", "));
+}
+
+const pct = v => `${(v * 100).toFixed(1)}%`;
+const money = v => v.toFixed(3);
+
+fetch("data.json").then(r => r.json()).then(data => {
+  document.getElementById("assumptions").textContent =
+    `Assumptions: variable cost is ${Math.round(data.cost_share * 100)}% of the price that sold ` +
+    `the most units, and ${Math.round(data.base_conversion * 100)}% of requests convert at the median price. ` +
+    "The fitted elasticities are an upper bound (prices were not randomised), so this is " +
+    "a known world to test the policy on, not a claim about the retailer.";
+
+  const policies = document.getElementById("policies");
+  for (const p of data.policies) {
+    const row = document.createElement("div");
+    row.className = "policy";
+    row.innerHTML = `<span>${p.policy}</span><div class="track"><div class="bar" style="width:${p.share_of_oracle * 100}%"></div></div><span class="value">${pct(p.share_of_oracle)}</span>`;
+    policies.append(row);
+  }
+
+  const select = document.getElementById("product");
+  data.products.forEach((p, i) => select.append(new Option(`${p.code} (${p.arms[0]}–${p.arms[4]})`, i)));
+
+  function render() {
+    const p = data.products[select.value];
+    const labels = p.arms.map(a => a.toFixed(2));
+    const marks = p.arms.map((_, i) =>
+      [i === p.oracle && "best", i === p.modal && "usual"].filter(Boolean).join(" · "));
+    barChart(document.getElementById("truth"), {
+      labels, values: p.expected, format: money, tickFormat: money, marks,
+      describe: i => `Price ${labels[i]}<br>Expected margin ${money(p.expected[i])} per request` +
+        (i === p.oracle ? "<br>Best fixed price" : "") + (i === p.modal ? "<br>Price that sold the most" : ""),
+    });
+    barChart(document.getElementById("learned"), {
+      labels, values: p.thompson_share, format: pct, tickFormat: v => `${Math.round(v * 100)}%`,
+      marks: p.arms.map((_, i) => i === p.oracle ? "best" : ""),
+      describe: i => `Price ${labels[i]}<br>${pct(p.thompson_share[i])} of requests`,
+    });
+    document.getElementById("table").innerHTML =
+      "<tr><th>Price</th><th>Expected margin</th><th>Thompson share</th></tr>" +
+      p.arms.map((a, i) => `<tr><td>${a.toFixed(2)}${i === p.oracle ? " (best)" : ""}</td><td>${money(p.expected[i])}</td><td>${pct(p.thompson_share[i])}</td></tr>`).join("");
+  }
+  // Open on a product where the best price is not the one the retailer usually charged.
+  select.value = Math.max(0, data.products.findIndex(p => p.oracle !== p.modal));
+  select.addEventListener("change", render);
+  render();
+});
+</script>
+</body>
+</html>

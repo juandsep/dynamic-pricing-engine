@@ -10,9 +10,9 @@ What the service already exposes on `/metrics` (Prometheus text format, per repl
 | `dp_price_guard_clamped_total` | arms outside `PRICE_MIN`/`PRICE_MAX`; non-zero means the catalogue and the guard disagree |
 | `dp_rejected_total{reason}` | 401, 429 and 413 by cause |
 
-F8 adds drift: PSI on the traffic mix (products requested) and on the served price
-distribution, against a `reference_profile.json` registered next to the policy — the
-reference project's drift job, applied to prices.
+Drift: `python -m dp.drift REFERENCE CURRENT` compares an impression log (an export of
+the `events` container) with the `reference_profile.json` that `dp.retrain` registers next
+to the policy. PSI on the product mix and on the served arm position; above 0.2 is drift.
 
 Nothing scrapes these on Azure today: a Prometheus or Managed Grafana instance would be the
 first always-on line item. For a demo, `curl $APP_URL/metrics` is the dashboard.
