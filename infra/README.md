@@ -202,8 +202,28 @@ gh secret set AZURE_TENANT_ID     --body "$TENANT_ID"
 gh secret set AZURE_SUBSCRIPTION_ID --body "$SUB_ID"
 ```
 
-Nothing else. The image goes to GHCR with the workflow's own `GITHUB_TOKEN`, and the app reaches
-Cosmos with its managed identity, so there is no registry credential and no connection string.
+The deploy job also reads two repository variables; it is skipped while they are unset:
+
+```bash
+gh variable set AZURE_RESOURCE_GROUP --body rg-dp-staging
+gh variable set AZURE_CONTAINER_APP  --body dp-staging-api   # terraform output container_app
+```
+
+Nothing else for Azure. The image goes to GHCR with the workflow's own `GITHUB_TOKEN`, and the app
+reaches Cosmos with its managed identity, so there is no registry credential and no connection
+string.
+
+The first push to `dev` after the deploy workflow lands publishes the image. GHCR creates the
+package **private**; make it public once (package settings → *Change visibility*) so the Container
+App can pull it anonymously.
+
+Tracking for `retrain.yml` (manual trigger) is DagsHub's free MLflow server:
+
+```bash
+gh variable set MLFLOW_TRACKING_URI      --body https://dagshub.com/<user>/<repo>.mlflow
+gh variable set MLFLOW_TRACKING_USERNAME --body <user>
+gh secret   set MLFLOW_TRACKING_PASSWORD  # a DagsHub access token
+```
 
 ### 8. Then Terraform
 

@@ -1,0 +1,106 @@
+name: Deploy
+
+on:
+  push:
+    # dev publishes an image and rolls staging onto it; main (releases from dev)
+    # only publishes a versioned image: there is no second, production app.
+    branches: [dev, main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+# Every action is pinned to a full commit SHA: a moved tag must not be able to
+# change what runs here.
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # GHCR with the workflow's own token: no registry credential.
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          provenance: true
+          sbom: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:${{ github.ref_name }}
+
+  deploy:
+    needs: image
+    # Skip until the Azure bootstrap has run (infra/README.md) and the stack is applied.
+    if: github.ref == 'refs/heads/dev' && vars.AZURE_CONTAINER_APP != ''
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write # OIDC federated credential, no stored Azure key.
+    steps:
+      # A half-configured repository must fail loudly, not report a green deploy
+      # that never reached Azure.
+      - name: Check the required configuration
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_CONTAINER_APP: ${{ vars.AZURE_CONTAINER_APP }}
+        run: |
+          missing=0
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID \
+                      AZURE_RESOURCE_GROUP AZURE_CONTAINER_APP; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is empty; see infra/README.md"
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Roll the Container App onto the new image
+        run: |
+          az containerapp update \
+            --name "${{ vars.AZURE_CONTAINER_APP }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --image "${{ env.IMAGE }}:${{ github.sha }}" \
+            --output none
+
+      # Scale-to-zero means the first request cold-starts the revision.
+      - name: Smoke test
+        run: |
+          fqdn=$(az containerapp show \
+            --name "${{ vars.AZURE_CONTAINER_APP }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          for attempt in $(seq 1 12); do
+            if curl -fsS "https://$fqdn/ready"; then exit 0; fi
+            sleep 10
+          done
+          echo "::error::https://$fqdn/ready did not answer within 2 minutes"
+          exit 1
