@@ -25,9 +25,11 @@ Deliberately **not** provisioned, and why:
 
 ```
 infra/
-├─ main.tf                    # provider, resource group and wiring
-├─ variables.tf               # inputs (region, names, throughput)
-├─ outputs.tf                 # endpoint and role assignment for CI
+├─ versions.tf                # Terraform and azurerm versions, provider, local state
+├─ main.tf                    # Cosmos account, database and containers; Container Apps
+│                             # environment and app; the app's data-plane role
+├─ variables.tf               # inputs (subscription, names, image, API key, throughput)
+├─ outputs.tf                 # app URL, Container App name, Cosmos endpoint
 └─ terraform.tfvars.example   # copy to terraform.tfvars and fill in
 ```
 

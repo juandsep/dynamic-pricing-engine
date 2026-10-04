@@ -9,7 +9,7 @@ Each phase below is one branch cut from `dev` and one pull request into `dev`
 
 ## Status
 
-F5 landed. Everything merged so far runs on a laptop; Azure is not needed until F6.
+F6 landed. Everything merged so far runs on a laptop; Azure is not needed until F6.
 
 | | State |
 |---|---|
@@ -19,7 +19,8 @@ F5 landed. Everything merged so far runs on a laptop; Azure is not needed until 
 | **F3** Thompson policy and Cosmos store | merged |
 | **F4** MLflow tracking and the reward contract | merged |
 | **F5** serving limits and payload contract | merged |
-| F6–F9 | not started, F6 is next (needs `az`) |
+| **F6** Azure infrastructure | merged; planned against the subscription, not applied |
+| F7–F9 | not started, F7 is next |
 
 On `dev` today: `scripts/fetch_data.sh`, `src/dp/data.py` (DuckDB ingest of both sheets to
 Parquet), `src/dp/demand.py` (per-product curves, measured out of sample), `src/dp/simulate.py`
@@ -272,6 +273,15 @@ latency per route, prices served per policy version, rewards by outcome and
 - Verify with `terraform init && terraform validate`; `plan`/`apply` cannot run on a machine
   without `az` and must be reported as unverified rather than assumed.
 - The account-level bootstrap is already written out in `infra/README.md`.
+
+Done: `terraform validate` passes and `terraform plan` ran against the real subscription
+(7 to add: Cosmos account with free tier and keys disabled, the `pricing` database at a shared
+1000 RU/s, the `posteriors` and `events` containers, the Container Apps environment with no Log
+Analytics, the app with a system-assigned identity, scale 0-1, liveness on `/health` and
+readiness on `/ready`, and its Cosmos Built-in Data Contributor assignment). Not applied: the
+image does not exist in GHCR until F7 publishes it. Bootstrap state on 2026-10-04: providers
+registered and `rg-dp-staging` created; the OIDC app, federated credentials, role and GitHub
+secrets are still to do.
 
 ### F7 · CI/CD and retraining — `feat/cicd-azure-deploy`
 
