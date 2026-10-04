@@ -250,8 +250,7 @@ counter becomes a metric instead of an assumption.
 ### F9 · Documentation reconciliation — `docs/azure-reality`
 
 Update `README.md`, `PLAN.md`, `docs/architecture.md` and `infra/README.md` to describe what is
-implemented, fill in the Results table with real numbers, and delete `PROMPT_NEXT_AGENT.md`:
-the migration prompt must not outlive the migration.
+implemented, and fill in the Results table with real numbers.
 
 ## Success metrics
 

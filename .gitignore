@@ -39,3 +39,6 @@ infra/tfplan
 
 # Code graph (graphify, rebuilt by the vault refresh hook)
 graphify-out/
+
+# Agent instructions that stay on this machine
+CLAUDE.local.md
