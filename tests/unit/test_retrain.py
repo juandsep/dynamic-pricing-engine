@@ -45,3 +45,7 @@ def test_run_tracks_every_policy_and_registers_the_best(tmp_path, monkeypatch):
     assert version.run_id in set(thompson["run_id"])
     policy = mlflow.artifacts.download_artifacts(f"{version.source}/catalogue.json")
     assert json.loads(Path(policy).read_text()) == json.loads(catalogue.read_text())
+    reference = mlflow.artifacts.download_artifacts(
+        f"{version.source}/reference_profile.json"
+    )
+    assert set(json.loads(Path(reference).read_text())) == {"products", "arms"}

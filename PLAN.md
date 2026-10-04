@@ -9,7 +9,7 @@ Each phase below is one branch cut from `dev` and one pull request into `dev`
 
 ## Status
 
-F7 landed. Everything merged so far runs on a laptop; Azure is not needed until F6.
+F8 landed. Everything merged so far runs on a laptop; Azure is not needed until F6.
 
 | | State |
 |---|---|
@@ -21,7 +21,8 @@ F7 landed. Everything merged so far runs on a laptop; Azure is not needed until 
 | **F5** serving limits and payload contract | merged |
 | **F6** Azure infrastructure | merged; planned against the subscription, not applied |
 | **F7** CI/CD and retraining | merged; deploy job skipped until the bootstrap variables exist |
-| F8–F9 | not started, F8 is next |
+| **F8** drift and demo | merged; the Space is not published |
+| F9 | documentation reconciliation, next |
 
 On `dev` today: `scripts/fetch_data.sh`, `src/dp/data.py` (DuckDB ingest of both sheets to
 Parquet), `src/dp/demand.py` (per-product curves, measured out of sample), `src/dp/simulate.py`
@@ -313,6 +314,14 @@ simulation and registration. Neither has run against Azure or DagsHub yet.
   job, applied to prices.
 - A static demo page (Hugging Face Space, like the reference) showing the learned price curve
   and the posterior per segment, built from a precomputed replay so it needs no backend.
+
+Done: `python -m dp.drift REFERENCE CURRENT` reports PSI on the product mix and on the served
+arm position (0 cheapest to 4 dearest in a product's band), categorical so no bin edges, drift
+above 0.2 as in the reference. `dp.retrain` registers `reference_profile.json` next to the
+catalogue: what the registered policy served in simulation. On the uniform simulated log
+against the registered Thompson reference: products PSI 0.000, arms PSI 0.662, drift, as it
+should be, since a uniform policy is not the one registered. `demo/` is a static page over an
+8 KB `data.json` written by `demo/make_data.py`; publishing it needs a Hugging Face account.
 
 ### F9 · Documentation reconciliation — `docs/azure-reality`
 

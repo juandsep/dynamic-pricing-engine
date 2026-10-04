@@ -350,6 +350,7 @@ def write_log(
                     "user_id": f"u-{step}",
                     "segment": world.codes[product],
                     "arm": price,
+                    "arm_index": int(arm[product]),
                     "propensity": 1 / n_arms,
                     "features": {},
                     "feature_version": 0,

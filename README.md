@@ -199,12 +199,14 @@ src/dp/
   thompson.py      Thompson Sampling policy
   catalogue.json   the served arms and unit cost per product (written by dp.retrain)
   retrain.py       pipeline run tracked in MLflow, best policy registered
+  drift.py         PSI of live traffic against the registered reference profile
   store.py         posterior and event store
   simulate.py      policy simulator, logged-bandit generator, offline replay
 scripts/           dataset download
 docs/              architecture and data contract
 infra/             Terraform and the one-off bootstrap
-monitoring/        dashboards and drift checks
+monitoring/        what /metrics exposes and how drift is read
+demo/              static page over the simulation (Hugging Face Space)
 tests/             unit and integration tests
 ```
 
