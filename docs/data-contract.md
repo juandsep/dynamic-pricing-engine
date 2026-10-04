@@ -37,6 +37,7 @@ correction is a new event.
 | `user_id` | Opaque, stable identifier. No email, no name, no free-text. |
 | `segment` | The bucket the posterior is kept per. Until real features exist this is `default`; see *Segments*. |
 | `arm` | The price that was quoted, one of the segment's arms (see *Arms*). |
+| `arm_index` | Position of `arm` in the segment's catalogue entry (`schema_version` 2). The posterior is indexed by it, so a reward moves the right arm even if two arms round to the same price. |
 | `propensity` | Probability the serving policy assigned to **this** arm. Required for offline evaluation; without it the log cannot be re-weighted. A uniform policy logs `1 / n_arms`; Thompson logs its own softmax-free sample probability, and if that probability is not recorded the log is only usable for descriptive statistics, never for off-policy estimates. |
 | `features` | The feature vector as read, with `feature_version`. Needed to reproduce the decision. |
 | `policy_version` | Which policy produced the arm. A retrained policy is a new version, never an overwrite. |
@@ -104,8 +105,9 @@ per implementation.
 // Split into /user_id or a time-based key when the retrain scan becomes the bottleneck.
 ```
 
-The online store holds the current posterior per (arm, segment). It is read on every
-request and written on every reward, so it stays small: one document per arm.
+The online store holds the current posterior per product, in the `posteriors` container:
+`{"id": segment, "alpha": [...], "beta": [...]}`, one entry per arm. It is read on every
+request and written on every reward, so it stays small: one document per product.
 `docs/architecture.md` names Azure Cache for Redis for it; with a single replica the same
 document in Cosmos is equivalent and free, and Redis is added when replicas > 1 or the
 point read misses the latency budget.

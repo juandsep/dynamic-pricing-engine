@@ -80,8 +80,10 @@ are in [infra/README.md](infra/README.md).
 
 ## Serving
 
-`GET /price` returns a price for a customer and records the arm it served, so a later
-`POST /reward` can attribute the outcome. The served price is always inside `PRICE_MIN` /
+`GET /price?user_id=...&product=...` returns one of the product's price arms, drawn by
+Thompson Sampling from the product's posterior, and logs the impression with its propensity
+and an `impression_id`, so a later `POST /reward` can attribute the outcome. A product
+outside the catalogue is a 404. The served price is always inside `PRICE_MIN` /
 `PRICE_MAX`, and each response carries the policy version that produced it.
 
 `POST /reward` is idempotent by request id: a retried reward cannot move the posterior
@@ -168,7 +170,8 @@ demo and destroyed after.
 | `COSMOS_ENDPOINT` | none | Cosmos DB account; unset runs on defaults with no credentials required |
 | `COSMOS_DATABASE` | `pricing` | Database name |
 | `MLFLOW_TRACKING_URI` | `sqlite:///mlflow.db` | Tracking and registry backend |
-| `PRICE_MIN` / `PRICE_MAX` | `10` / `100` | Allowed price range |
+| `PRICE_MIN` / `PRICE_MAX` | `0.01` / `100` | Guard on every served price; the arms already sit inside each product's band |
+| `CATALOGUE_PATH` | `data/processed/catalogue.json` | Arms and unit cost per product, written by `python -m dp.simulate` |
 | `POLICY_VERSION` | none | Policy version to serve, never a floating alias |
 
 No connection strings and no key vault: the service authenticates to Cosmos with its managed

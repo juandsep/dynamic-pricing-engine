@@ -40,6 +40,7 @@ COST_SHARE = 0.5
 BASE_CONVERSION = 0.05
 N_ARMS = 5
 LOG_JSONL = DATA_DIR / "processed" / "simulated_log.jsonl"
+CATALOGUE_JSON = DATA_DIR / "processed" / "catalogue.json"
 
 _IMPRESSION_KEYS = ("id", "ts", "user_id", "segment", "arm", "propensity")
 _REWARD_KEYS = ("id", "ts", "impression_id", "converted", "margin", "window_hours")
@@ -372,10 +373,21 @@ def write_log(
     return count
 
 
+def write_catalogue(path: Path, world: World) -> None:
+    """The arms and unit cost per product that the serving sampler prices from."""
+    catalogue = {
+        code: {"arms": world.arms[i].tolist(), "cost": round(float(world.cost[i]), 4)}
+        for i, code in enumerate(world.codes)
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(catalogue, indent=2) + "\n", encoding="utf-8")
+
+
 def simulate(
     curves: Path, top: int, requests: int, log: Path, log_requests: int
 ) -> None:
     world = load_world(curves, top)
+    write_catalogue(CATALOGUE_JSON, world)
     outcomes = play(world, requests)
     n_products, n_arms = world.arms.shape
     print(
@@ -406,6 +418,7 @@ def simulate(
     )
     written = write_log(log, world, log_requests)
     print(f"uniform log: {written} impressions -> {log}")
+    print(f"catalogue: {n_products} products -> {CATALOGUE_JSON}")
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -9,26 +9,30 @@ Each phase below is one branch cut from `dev` and one pull request into `dev`
 
 ## Status
 
-F2 landed. Everything merged so far runs on a laptop; Azure is not needed until F6.
+F3 landed. Everything merged so far runs on a laptop; Azure is not needed until F6.
 
 | | State |
 |---|---|
 | Foundations, data contract, offline replay | merged |
 | **F1** ingest and demand model | merged, measured numbers under F1 |
 | **F2** simulator with known propensities | merged, measured numbers under F2 |
-| F3–F9 | not started, F3 is next |
+| **F3** Thompson policy and Cosmos store | merged |
+| F4–F9 | not started, F4 is next |
 
 On `dev` today: `scripts/fetch_data.sh`, `src/dp/data.py` (DuckDB ingest of both sheets to
 Parquet), `src/dp/demand.py` (per-product curves, measured out of sample), `src/dp/simulate.py`
-(simulator on the curves, four policies, uniform log, replay), FastAPI `GET /price` and `/health`, `docs/data-contract.md`, and
-28 offline tests. Still stand-ins: `src/dp/thompson.py` samples uniformly and
-`FeatureStore.record_event` raises `NotImplementedError`.
+(simulator on the curves, four policies, uniform log, catalogue, replay), `src/dp/thompson.py`
+(Thompson Sampling per product), `src/dp/store.py` (posteriors and events in Cosmos DB, in
+memory without an endpoint), FastAPI `GET /price` and `/health`, `docs/data-contract.md`, and
+33 offline tests. Not yet: `POST /reward` (F4), and the catalogue does not ship in the
+image, so a container without `CATALOGUE_PATH` answers 404 to every product until F4
+registers it with the policy.
 
 ```bash
 scripts/fetch_data.sh          # 44 MB → data/raw/, skipped when already there
 uv run python -m dp.data       # 9s → data/processed/orders.parquet
 uv run python -m dp.demand     # 3s → curves and data/processed/demand_summary.json
-uv run python -m dp.simulate   # 2s → policy table and data/processed/simulated_log.jsonl
+uv run python -m dp.simulate   # 2s → policy table, simulated_log.jsonl, catalogue.json
 ```
 
 Azure: nothing here has been applied. `infra/` is a README and a bootstrap, there is no
@@ -189,16 +193,26 @@ same requests and same conversion draws for every policy):
 
 ### F3 · Policy and store — `feat/thompson-policy`
 
-- Real Thompson Sampling: one Beta posterior per (price arm, segment), sample every arm,
-  argmax, clamp to `PRICE_MIN`/`PRICE_MAX`.
-- The posterior lives in the store as one document per (arm, segment), so a restart does not
-  forget and a reward is a single point write.
-- `store.py` gets the Cosmos implementation of `record_event` behind the existing interface,
-  using `DefaultAzureCredential` (managed identity in Azure) — lazy and fail-open, and the
-  whole suite must keep passing with no Azure credentials present. The dead Redis client and
-  its dependency go in this phase.
+- Real Thompson Sampling: one Beta posterior per (product, arm) on conversion, sample every
+  arm, score by unit margin, argmax, clamp to `PRICE_MIN`/`PRICE_MAX`.
+- The posterior lives in the store as one document per product with its arms inside, so a
+  restart does not forget and a reward is a single atomic `incr` patch.
+- `store.py` gets the Cosmos implementation of `record_event`, using `DefaultAzureCredential`
+  (managed identity in Azure) — lazy and fail-open, and the whole suite must keep passing with
+  no Azure credentials present. The dead Redis client and its dependency go in this phase.
 
 Check: two sequential rewards move the posterior, and a restart preserves it.
+
+Done (`tests/unit/test_dp.py`). What landed beyond the check:
+
+- Without `COSMOS_ENDPOINT` the store runs the same code against an in-memory container,
+  which is also the test double; nothing reaches the network at import.
+- Fail-open on the request path: an unreachable store serves the uniform prior and a lost
+  impression does not fail the quote. A reward that cannot be persisted raises, so F4 can
+  answer 503.
+- Thompson's propensity is the share of 1,000 posterior draws that pick the served arm.
+- Not run against a real Cosmos account: `az` is not on this machine, so the `patch_item`
+  `incr` on an array index is exercised only through the in-memory container until F6.
 
 ### F4 · Tracking, registry and the reward contract — `feat/mlflow-and-reward`
 
