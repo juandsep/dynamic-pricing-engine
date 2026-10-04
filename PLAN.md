@@ -9,7 +9,8 @@ Each phase below is one branch cut from `dev` and one pull request into `dev`
 
 ## Status
 
-F8 landed. Everything merged so far runs on a laptop; Azure is not needed until F6.
+F9 landed: every phase is merged. Everything runs on a laptop; Azure only hosts the demo,
+applied before it and destroyed after.
 
 | | State |
 |---|---|
@@ -22,7 +23,7 @@ F8 landed. Everything merged so far runs on a laptop; Azure is not needed until 
 | **F6** Azure infrastructure | merged; planned against the subscription, not applied |
 | **F7** CI/CD and retraining | merged; deploy job skipped until the bootstrap variables exist |
 | **F8** drift and demo | merged; the Space is not published |
-| F9 | documentation reconciliation, next |
+| **F9** documentation reconciliation | merged |
 
 On `dev` today: `scripts/fetch_data.sh`, `src/dp/data.py` (DuckDB ingest of both sheets to
 Parquet), `src/dp/demand.py` (per-product curves, measured out of sample), `src/dp/simulate.py`
@@ -330,12 +331,13 @@ implemented, and fill in the Results table with real numbers.
 
 ## Success metrics
 
-- Regret against the oracle price below the agreed threshold, and positive incremental margin
-  against the fixed-price baseline on a held-out period.
-- p95 latency of `/price` below 50 ms.
-- Zero price floor/ceiling violations.
-- Zero fixed monthly cost: every resource free-tier, inside a free grant, or destroyed while
-  idle.
+| Metric | Target | Measured |
+|---|---|---|
+| Thompson's share of the oracle's margin (simulated world, top 50 products) | at least 90% | 93.9% |
+| Margin over the price the retailer usually charged | positive | +51.5% (51,776 vs 34,165) |
+| p95 latency of `/price` | below 50 ms | not measured on Azure yet; `dp_request_seconds` reports it per replica |
+| Prices outside `PRICE_MIN`/`PRICE_MAX` | zero | zero by construction: clamped, and every clamp counted in `/metrics` |
+| Fixed monthly cost | zero | zero: free tier, free grant, or destroyed after the demo |
 
 ## Reference
 
