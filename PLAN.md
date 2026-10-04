@@ -7,6 +7,35 @@ CI/CD and infrastructure as code on Azure at zero monthly cost.
 Each phase below is one branch cut from `dev` and one pull request into `dev`
 (`CONTRIBUTING.md`). A phase is done when its check passes, not when its files exist.
 
+## Status
+
+F1 landed. Everything merged so far runs on a laptop; Azure is not needed until F6.
+
+| | State |
+|---|---|
+| Foundations, data contract, offline replay | merged |
+| **F1** ingest and demand model | merged, measured numbers under F1 |
+| F2–F9 | not started, F2 is next |
+
+On `dev` today: `scripts/fetch_data.sh`, `src/dp/data.py` (DuckDB ingest of both sheets to
+Parquet), `src/dp/demand.py` (per-product curves, measured out of sample), `src/dp/simulate.py`
+(replay of a logged policy), FastAPI `GET /price` and `/health`, `docs/data-contract.md`, and
+24 offline tests. Still stand-ins: `src/dp/thompson.py` samples uniformly and
+`FeatureStore.record_event` raises `NotImplementedError`.
+
+```bash
+scripts/fetch_data.sh          # 44 MB → data/raw/, skipped when already there
+uv run python -m dp.data       # 9s → data/processed/orders.parquet
+uv run python -m dp.demand     # 3s → curves and data/processed/demand_summary.json
+```
+
+Azure: nothing here has been applied. `infra/` is a README and a bootstrap, there is no
+Terraform state, and the `az` CLI is not installed on the development machine. The one piece
+of the bootstrap that has been run is the 10 USD subscription budget, which only sends mail
+(`infra/README.md`). `data/` is git-ignored and rebuilt by the commands above, so it does not
+travel with the repo: the numbers in this file are how a fresh clone checks it reproduced the
+same thing.
+
 ## Dataset
 
 **Chosen: UCI Online Retail II** — 1,067,371 order lines from a UK online retailer
