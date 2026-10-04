@@ -32,8 +32,9 @@ from dp.demand import CURVES_PARQUET
 from dp.thompson import CATALOGUE_PATH
 
 # The data carries no costs (docs/data-contract.md, item 4), so margin needs an
-# assumption: variable cost as a share of the product's median price. With the median
-# elasticity of -2.4 the optimum sits near the median price, inside the band.
+# assumption: variable cost as a share of the price that sold the most units. Anchored
+# there because a retailer does not sell most of its units at a loss; anchored on the
+# median instead, 4 of the top 50 products had their usual price below cost.
 COST_SHARE = 0.5
 # Probability that a request converts at the product's median price. The curve gives
 # the shape around it; the level is a choice, and it sets how many requests a policy
@@ -225,7 +226,7 @@ def build_world(
         codes=[str(code) for code in curves["stock_code"]],
         arms=arms,
         conversion=conversion,
-        cost=cost_share * median,
+        cost=cost_share * modal[:, 0],
         modal_arm=np.abs(arms - modal).argmin(axis=1),
     )
 
@@ -392,7 +393,7 @@ def simulate(
     n_products, n_arms = world.arms.shape
     print(
         f"{n_products} products x {n_arms} arms, {requests} requests per product, "
-        f"cost {COST_SHARE:.0%} of median price, base conversion {BASE_CONVERSION:.0%}"
+        f"cost {COST_SHARE:.0%} of modal price, base conversion {BASE_CONVERSION:.0%}"
     )
     print(
         f"oracle arm per product: {np.bincount(world.oracle_arm, minlength=n_arms)} "

@@ -169,8 +169,11 @@ Decisions closed here:
   (`price_min`..`price_max` from F1), not a global 1–100 grid.
 - **One posterior per product, arms inside it**: a Beta per (product, arm) on conversion,
   scored by its unit margin. 50 products × 5 arms for the demo, not (arm × price tier).
-- The data has no costs, so **variable cost is 50% of the median price** and **conversion at
-  the median price is 5%**; the curve gives the shape around that level. Both are flags in
+- The data has no costs, so **variable cost is 50% of the modal price** (the price that sold
+  the most units) and **conversion at the median price is 5%**; the curve gives the shape
+  around that level. The cost was first anchored on the median price, which put the usual
+  price of 4 of the 50 products below cost: a retailer does not sell most of its units at a
+  loss, so the anchor moved to the modal price. Both are flags in
   `dp.simulate`, and every number below depends on them.
 
 Measured (`uv run python -m dp.simulate`: top 50 products by units, 20,000 requests each,
@@ -178,17 +181,17 @@ same requests and same conversion draws for every policy):
 
 | Policy | Expected margin | Regret | % of oracle |
 |---|---|---|---|
-| Oracle (best fixed arm per product) | 42,434 | 0 | 100% |
-| Thompson Sampling | 39,480 | 2,955 | 93.0% |
-| Uniform | 20,297 | 22,137 | 47.8% |
-| Modal price | 16,397 | 26,037 | 38.6% |
+| Oracle (best fixed arm per product) | 55,161 | 0 | 100% |
+| Thompson Sampling | 51,776 | 3,385 | 93.9% |
+| Modal price | 34,165 | 20,996 | 61.9% |
+| Uniform | 26,843 | 28,318 | 48.7% |
 
-- Thompson's posterior-mean best arm settled on the oracle's in 47 of 50 products; median
-  1,322 requests, p90 13,305. The three that did not settle have two arms within a few
-  percent of each other: their regret is small even when the choice flips.
-- The oracle sits on the cheapest arm for 33 of 50 products. That is the F1 elasticities
+- Thompson's posterior-mean best arm settled on the oracle's in 46 of 50 products; median
+  910 requests, p90 8,090. The four that did not settle have their two best arms within
+  5% of each other: their regret is small even when the choice flips.
+- The oracle sits on the cheapest arm for 42 of 50 products. That is the F1 elasticities
   speaking (median −2.7 on these products, an upper bound): in the simulated world a lower
-  price always sells enough more to pay for itself. The 38.6% for the modal price is a
+  price always sells enough more to pay for itself. The 61.9% for the modal price is a
   property of that world, not a claim about what the retailer left on the table.
 - The uniform log (100,000 impressions, propensity 1/5) replays through the same
   `--events` path; on one product, SNIPS from it recovers each arm's true expected margin to

@@ -9,7 +9,7 @@ import pytest
 
 from dp.simulate import attribute, build_world, load_events, play, snips, write_log
 
-# Seed 7 is the slowest of seeds 0-19 to settle (6,321 requests): the thresholds
+# Seed 14 is the slowest of seeds 0-19 to settle (3,416 requests): the thresholds
 # below hold for all twenty, not for a lucky one.
 REQUESTS = 10_000
 
@@ -25,12 +25,12 @@ def curves() -> pd.DataFrame:
                 "median_price": 2.0,
                 "price_min": 1.0,
                 "price_max": 3.0,
-                "modal_price": 3.0,
+                "modal_price": 2.0,
                 "units": 100,
             },
             {
                 "stock_code": "INELASTIC",
-                "elasticity": -0.8,
+                "elasticity": -0.5,
                 "median_price": 2.0,
                 "price_min": 1.0,
                 "price_max": 3.0,
@@ -48,15 +48,16 @@ def world():
 
 @pytest.fixture(scope="module")
 def outcomes(world):
-    return play(world, REQUESTS, seed=7)
+    return play(world, REQUESTS, seed=14)
 
 
 def test_arms_are_absolute_prices_inside_the_band(world) -> None:
     assert world.arms.tolist() == [[1.0, 1.5, 2.0, 2.5, 3.0]] * 2
-    # Cost is half the median price; elasticity -3 puts the optimum at 1.5,
-    # elasticity -0.8 pushes it to the top of the band.
+    # Cost is half the modal price; elasticity -3 puts the optimum at 1.5 times the
+    # cost, elasticity -0.5 pushes it to the top of the band.
+    assert world.cost.tolist() == [1.0, 0.5]
     assert world.oracle_arm.tolist() == [1, 4]
-    assert world.modal_arm.tolist() == [4, 0]
+    assert world.modal_arm.tolist() == [2, 0]
 
 
 def test_oracle_wins_by_construction(outcomes) -> None:
