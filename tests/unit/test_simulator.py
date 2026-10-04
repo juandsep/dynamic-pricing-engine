@@ -96,3 +96,14 @@ def test_uniform_log_propensities_recover_the_true_margin(tmp_path) -> None:
         assert snips(rows, price) == pytest.approx(
             one_product.expected[0, arm], abs=0.02
         )
+
+
+def test_catalogue_is_what_the_serving_sampler_reads(tmp_path, world) -> None:
+    from dp.simulate import write_catalogue
+    from dp.thompson import load_catalogue
+
+    path = tmp_path / "catalogue.json"
+    write_catalogue(path, world)
+    catalogue = load_catalogue(path)
+    assert list(catalogue) == ["ELASTIC", "INELASTIC"]
+    assert catalogue["ELASTIC"] == {"arms": [1.0, 1.5, 2.0, 2.5, 3.0], "cost": 1.0}

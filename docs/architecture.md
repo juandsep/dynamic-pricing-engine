@@ -3,12 +3,12 @@
 ## Request path
 
 ```
-client ──▶ GET /price ──▶ ThompsonSampler ──▶ FeatureStore ──▶ Cosmos DB (posterior)
+client ──▶ GET /price ──▶ ThompsonSampler ──▶ Store ──▶ Cosmos DB (posterior, events)
                               │
                               └──▶ response { user_id, price }
 ```
 
-1. The API reads the current posterior for the customer's segment from the store.
+1. The API reads the current posterior for the product (the segment) from the store.
 2. The sampler draws one sample per price arm from its Beta posterior and picks
    the arm with the highest expectation.
 3. The sampled price is clamped to `PRICE_MIN` / `PRICE_MAX` before it is returned.
@@ -25,9 +25,9 @@ Cosmos DB (posterior + durable events) ──▶ scripts/retrain.py ──▶ ML
         └──────────── posterior recalibration ◀───────────────────────┘
 ```
 
-- Online: the current posterior parameters live in Cosmos DB as one document per
-  (arm, segment), so a reward update is a single point write and every replica reads
-  the same document.
+- Online: the current posterior parameters live in Cosmos DB (container `posteriors`) as
+  one document per product with its arms inside, so a reward update is a single atomic
+  `incr` patch and every replica reads the same document.
 - Durable: every served price and its outcome land in the same account, and are what the
   weekly retraining job replays.
 - Retraining never mutates a registered model in place; it registers a new version.
@@ -38,7 +38,7 @@ Cosmos DB (posterior + durable events) ──▶ scripts/retrain.py ──▶ ML
 |---|---|---|
 | Azure Cosmos DB | live posterior, hot features, served arms, rewards | point reads on the request path, append-heavy writes for events, batch reads at retrain time |
 
-One store, two workloads. The online document set is tiny — one document per arm × segment, on the
+One store, two workloads. The online document set is tiny — one document per product, on the
 order of tens of KB — and a Cosmos point read is a single-digit-millisecond operation, so a separate
 cache in front of it buys latency the request path does not need.
 
