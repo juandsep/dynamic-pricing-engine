@@ -9,24 +9,26 @@ Each phase below is one branch cut from `dev` and one pull request into `dev`
 
 ## Status
 
-F1 landed. Everything merged so far runs on a laptop; Azure is not needed until F6.
+F2 landed. Everything merged so far runs on a laptop; Azure is not needed until F6.
 
 | | State |
 |---|---|
 | Foundations, data contract, offline replay | merged |
 | **F1** ingest and demand model | merged, measured numbers under F1 |
-| F2–F9 | not started, F2 is next |
+| **F2** simulator with known propensities | merged, measured numbers under F2 |
+| F3–F9 | not started, F3 is next |
 
 On `dev` today: `scripts/fetch_data.sh`, `src/dp/data.py` (DuckDB ingest of both sheets to
 Parquet), `src/dp/demand.py` (per-product curves, measured out of sample), `src/dp/simulate.py`
-(replay of a logged policy), FastAPI `GET /price` and `/health`, `docs/data-contract.md`, and
-24 offline tests. Still stand-ins: `src/dp/thompson.py` samples uniformly and
+(simulator on the curves, four policies, uniform log, replay), FastAPI `GET /price` and `/health`, `docs/data-contract.md`, and
+28 offline tests. Still stand-ins: `src/dp/thompson.py` samples uniformly and
 `FeatureStore.record_event` raises `NotImplementedError`.
 
 ```bash
 scripts/fetch_data.sh          # 44 MB → data/raw/, skipped when already there
 uv run python -m dp.data       # 9s → data/processed/orders.parquet
 uv run python -m dp.demand     # 3s → curves and data/processed/demand_summary.json
+uv run python -m dp.simulate   # 2s → policy table and data/processed/simulated_log.jsonl
 ```
 
 Azure: nothing here has been applied. `infra/` is a README and a bootstrap, there is no
@@ -151,6 +153,39 @@ Measured on the real download (`python -m dp.data` 9s, `python -m dp.demand` 3s)
 
 Check: on a simulated log with a known optimum, the oracle wins by construction and Thompson
 converges to it within the sample budget. That assertion is the phase.
+
+Decisions closed here:
+
+- **Arms are absolute prices**: five evenly spaced over each product's observed band
+  (`price_min`..`price_max` from F1), not a global 1–100 grid.
+- **One posterior per product, arms inside it**: a Beta per (product, arm) on conversion,
+  scored by its unit margin. 50 products × 5 arms for the demo, not (arm × price tier).
+- The data has no costs, so **variable cost is 50% of the median price** and **conversion at
+  the median price is 5%**; the curve gives the shape around that level. Both are flags in
+  `dp.simulate`, and every number below depends on them.
+
+Measured (`uv run python -m dp.simulate`: top 50 products by units, 20,000 requests each,
+same requests and same conversion draws for every policy):
+
+| Policy | Expected margin | Regret | % of oracle |
+|---|---|---|---|
+| Oracle (best fixed arm per product) | 42,434 | 0 | 100% |
+| Thompson Sampling | 39,480 | 2,955 | 93.0% |
+| Uniform | 20,297 | 22,137 | 47.8% |
+| Modal price | 16,397 | 26,037 | 38.6% |
+
+- Thompson's posterior-mean best arm settled on the oracle's in 47 of 50 products; median
+  1,322 requests, p90 13,305. The three that did not settle have two arms within a few
+  percent of each other: their regret is small even when the choice flips.
+- The oracle sits on the cheapest arm for 33 of 50 products. That is the F1 elasticities
+  speaking (median −2.7 on these products, an upper bound): in the simulated world a lower
+  price always sells enough more to pay for itself. The 38.6% for the modal price is a
+  property of that world, not a claim about what the retailer left on the table.
+- The uniform log (100,000 impressions, propensity 1/5) replays through the same
+  `--events` path; on one product, SNIPS from it recovers each arm's true expected margin to
+  within 0.02 (`tests/unit/test_simulator.py`).
+- Thompson's own propensity is not logged yet: it has no closed form and needs a Monte Carlo
+  estimate per request. That belongs to the serving policy in F3.
 
 ### F3 · Policy and store — `feat/thompson-policy`
 

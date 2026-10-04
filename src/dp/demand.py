@@ -113,6 +113,11 @@ def fit_curves(
                     group[group["month"] < cut], group[group["month"] >= cut]
                 ),
                 "median_price": float(group["price"].median()),
+                # The band the F2 arms live in, and the price that sold the most units:
+                # what the business actually charged, the baseline a policy has to beat.
+                "price_min": float(group["price"].min()),
+                "price_max": float(group["price"].max()),
+                "modal_price": float(group.groupby("price")["units"].sum().idxmax()),
                 "units": int(group["units"].sum()),
             }
         )

@@ -36,7 +36,7 @@ correction is a new event.
 | `ts` | When the price was quoted, UTC, RFC 3339. |
 | `user_id` | Opaque, stable identifier. No email, no name, no free-text. |
 | `segment` | The bucket the posterior is kept per. Until real features exist this is `default`; see *Segments*. |
-| `arm` | The price that was quoted, an integer inside `PRICE_MIN`..`PRICE_MAX`, on the discretised grid (see *Arms*). |
+| `arm` | The price that was quoted, one of the segment's arms (see *Arms*). |
 | `propensity` | Probability the serving policy assigned to **this** arm. Required for offline evaluation; without it the log cannot be re-weighted. A uniform policy logs `1 / n_arms`; Thompson logs its own softmax-free sample probability, and if that probability is not recorded the log is only usable for descriptive statistics, never for off-policy estimates. |
 | `features` | The feature vector as read, with `feature_version`. Needed to reproduce the decision. |
 | `policy_version` | Which policy produced the arm. A retrained policy is a new version, never an overwrite. |
@@ -82,13 +82,16 @@ per implementation.
 
 ## Arms and segments
 
-- **Arms**: prices on a grid from `PRICE_MIN` (10) to `PRICE_MAX` (100), step 5 → 19 arms.
-  The grid is a business decision: too fine and every arm starves, too coarse and the
-  policy cannot express the optimum.
-- **Segments**: the posterior is kept per (arm, segment). A segment is a small, stable
-  bucket derived from features, e.g. `channel × country_tier`, never a per-user key.
-  Start with a single `default` segment: 19 arms × 1 segment needs ~100 rewards per arm
-  before the posteriors mean anything, and that is already the minimum volume.
+- **Arms** (`schema_version` 2): absolute prices, five evenly spaced over each product's
+  observed price band, so `arm` is a float in currency units and only means something
+  together with its `segment`. Version 1 used one global grid from `PRICE_MIN` (10) to
+  `PRICE_MAX` (100), step 5, which made regret meaningless across products priced at 0.29
+  and 12.75. The count is a business decision: too many and every arm starves, too few and
+  the policy cannot express the optimum.
+- **Segment** (`schema_version` 2): the product's `stock_code`. F1 found the elasticity
+  flat across price tiers, so the product is the segment that carries information.
+- The posterior is kept per (segment, arm): one document per product with its five arms
+  inside. A segment is never a per-user key.
 
 ## Storage mapping
 
@@ -109,8 +112,8 @@ point read misses the latency budget.
 
 ## Volume
 
-- **Minimum credible**: ~100 rewards per arm. With 19 arms and one segment that is
-  ~1,900 rewards, and at a realistic low conversion rate, tens of thousands of impressions.
+- **Minimum credible**: ~100 rewards per arm. With 5 arms per product that is ~500 rewards
+  per product, and at a 5% conversion rate, about 10,000 impressions per product.
 - **Below that**: the policy is noise on noise. Report the log's coverage per arm, never a
   metric that hides untried arms.
 
