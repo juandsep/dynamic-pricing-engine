@@ -9,7 +9,7 @@ Each phase below is one branch cut from `dev` and one pull request into `dev`
 
 ## Status
 
-F6 landed. Everything merged so far runs on a laptop; Azure is not needed until F6.
+F7 landed. Everything merged so far runs on a laptop; Azure is not needed until F6.
 
 | | State |
 |---|---|
@@ -20,7 +20,8 @@ F6 landed. Everything merged so far runs on a laptop; Azure is not needed until 
 | **F4** MLflow tracking and the reward contract | merged |
 | **F5** serving limits and payload contract | merged |
 | **F6** Azure infrastructure | merged; planned against the subscription, not applied |
-| F7–F9 | not started, F7 is next |
+| **F7** CI/CD and retraining | merged; deploy job skipped until the bootstrap variables exist |
+| F8–F9 | not started, F8 is next |
 
 On `dev` today: `scripts/fetch_data.sh`, `src/dp/data.py` (DuckDB ingest of both sheets to
 Parquet), `src/dp/demand.py` (per-product curves, measured out of sample), `src/dp/simulate.py`
@@ -294,6 +295,13 @@ secrets are still to do.
   same numbers; the reference's DAG is manual-trigger for the same reason.
 - `main` receives releases from `dev` and publishes a versioned image tag; there is no second,
   production Container App for an ephemeral demo stack to keep alive.
+
+Done: `deploy.yml` builds with provenance and an SBOM and pushes `:<sha>` and `:<branch>` to
+GHCR on `dev` and `main`; on `dev` it then logs in by OIDC, rolls the app onto `:<sha>` and
+waits up to two minutes for `/ready` through the cold start. The deploy job is skipped while
+`AZURE_CONTAINER_APP` is unset, and fails loudly on any other missing value. `retrain.yml`
+caches the UCI download, refuses to run without a tracking server, and runs ingest, fit,
+simulation and registration. Neither has run against Azure or DagsHub yet.
 
 ### F8 · Monitoring and demo — `feat/monitoring-demo`
 
