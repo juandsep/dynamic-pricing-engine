@@ -4,10 +4,13 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
+from prometheus_client import REGISTRY
 
 from dp import api
 from dp.api import app, get_sampler
 from dp.thompson import CATALOGUE_PATH
+
+KEY = "test-key"
 
 
 @pytest.fixture
@@ -16,8 +19,10 @@ def client(tmp_path, monkeypatch):
     path.write_text(json.dumps({"A": {"arms": [1.0, 2.0, 3.0], "cost": 0.5}}))
     monkeypatch.setenv("CATALOGUE_PATH", str(path))
     monkeypatch.delenv("COSMOS_ENDPOINT", raising=False)
+    monkeypatch.setattr(api, "API_KEY", KEY)
+    monkeypatch.setattr(api, "_bucket", api.TokenBucket(1000))
     get_sampler.cache_clear()
-    yield TestClient(app)
+    yield TestClient(app, headers={"X-API-Key": KEY})
     get_sampler.cache_clear()
 
 
@@ -146,3 +151,58 @@ def test_unknown_product_is_404_and_inputs_are_validated(client):
     )
     assert client.get("/price", params={"product": "A"}).status_code == 422
     assert reward(client, "i-1", margin=-1).status_code == 422
+
+
+def test_price_and_reward_need_the_api_key(client):
+    bare = TestClient(app)
+    assert (
+        bare.get("/price", params={"user_id": "u", "product": "A"}).status_code == 401
+    )
+    wrong = TestClient(app, headers={"X-API-Key": "nope"})
+    assert wrong.post("/reward", json={}).status_code == 401
+    assert bare.get("/health").status_code == 200
+
+
+def test_no_configured_key_fails_closed(client, monkeypatch):
+    monkeypatch.setattr(api, "API_KEY", "")
+    response = client.get("/price", params={"user_id": "u", "product": "A"})
+    assert response.status_code == 503
+
+
+def test_over_the_rate_limit_is_429(client, monkeypatch):
+    monkeypatch.setattr(api, "_bucket", api.TokenBucket(2))
+    codes = [
+        client.get("/price", params={"user_id": "u", "product": "A"}).status_code
+        for _ in range(3)
+    ]
+    assert codes == [200, 200, 429]
+
+
+def test_an_oversized_body_is_413_before_parsing(client):
+    body = "x" * (api.MAX_BODY_BYTES + 1)
+    response = client.post(
+        "/reward", content=body, headers={"content-type": "application/json"}
+    )
+    assert response.status_code == 413
+
+
+def test_metrics_count_prices_and_guard_clamps(client, monkeypatch):
+    def value(name, **labels):
+        return REGISTRY.get_sample_value(name, labels) or 0.0
+
+    served = value("dp_prices_served_total", policy_version="v1-thompson")
+    clamps = value("dp_price_guard_clamped_total")
+
+    serve(client)  # every arm inside the guard
+    assert value("dp_price_guard_clamped_total") == clamps
+    sampler = get_sampler()
+    monkeypatch.setattr(sampler, "min_price", 5.0)  # every arm below the floor
+    monkeypatch.setattr(sampler, "max_price", 9.0)
+    assert serve(client)["price"] == 5.0
+
+    assert value("dp_price_guard_clamped_total") == clamps + 1
+    assert value("dp_prices_served_total", policy_version="v1-thompson") == served + 2
+    assert (
+        'dp_request_seconds_count{path="/price",status="200"}'
+        in client.get("/metrics").text
+    )

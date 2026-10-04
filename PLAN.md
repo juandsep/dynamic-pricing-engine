@@ -9,7 +9,7 @@ Each phase below is one branch cut from `dev` and one pull request into `dev`
 
 ## Status
 
-F4 landed. Everything merged so far runs on a laptop; Azure is not needed until F6.
+F5 landed. Everything merged so far runs on a laptop; Azure is not needed until F6.
 
 | | State |
 |---|---|
@@ -18,15 +18,17 @@ F4 landed. Everything merged so far runs on a laptop; Azure is not needed until 
 | **F2** simulator with known propensities | merged, measured numbers under F2 |
 | **F3** Thompson policy and Cosmos store | merged |
 | **F4** MLflow tracking and the reward contract | merged |
-| F5–F9 | not started, F5 is next |
+| **F5** serving limits and payload contract | merged |
+| F6–F9 | not started, F6 is next (needs `az`) |
 
 On `dev` today: `scripts/fetch_data.sh`, `src/dp/data.py` (DuckDB ingest of both sheets to
 Parquet), `src/dp/demand.py` (per-product curves, measured out of sample), `src/dp/simulate.py`
 (simulator on the curves, four policies, uniform log, catalogue, replay), `src/dp/thompson.py`
 (Thompson Sampling per product), `src/dp/store.py` (posteriors and events in Cosmos DB, in
 memory without an endpoint), `src/dp/retrain.py` (MLflow runs and registry), the served
-catalogue `src/dp/catalogue.json`, FastAPI `GET /price`, `POST /reward`, `/health` and
-`/ready`, `docs/data-contract.md`, and 40 offline tests.
+catalogue `src/dp/catalogue.json`, FastAPI `GET /price`, `POST /reward` (API key, rate limit, size limit),
+`/health`, `/ready` and `/metrics`, `docs/data-contract.md`, and 45 offline tests. The API
+image carries serving dependencies only (383 MB); the pipeline is the `pipeline` group.
 
 ```bash
 scripts/fetch_data.sh          # 44 MB → data/raw/, skipped when already there
@@ -95,9 +97,9 @@ Alternatives rejected:
 | MLflow server on Cloud Run + registry | MLflow hosted free on DagsHub + registry | F4 |
 | `score.py` batch scoring to GCS | Simulation replay + posterior snapshot | F3 |
 | FastAPI `POST /predict` on Cloud Run | FastAPI `GET /price`, `POST /reward` | F4 |
-| Airflow DAG on a spot VM | GitHub Actions scheduled workflow | F7 |
+| Airflow DAG on a spot VM, manual trigger | GitHub Actions workflow, manual trigger | F7 |
 | Terraform on GCP + Workload Identity Federation | Terraform `azurerm` + OIDC federated credentials | F6 |
-| CI/CD: `dev`→staging, `main`→production | Same split, Container Apps revisions | F7 |
+| CI/CD: `dev`→staging, `main`→production | `dev`→staging; `main` publishes a versioned image | F7 |
 | Grafana + drift job (PSI) | PSI on the traffic mix and the served price | F8 |
 | Static demo page on Hugging Face | Price-curve demo per segment | F8 |
 
@@ -253,12 +255,20 @@ answered with 429, and a response that names the policy version. It is the refer
 "Production limits" section, applied here. It is also where the price floor/ceiling violation
 counter becomes a metric instead of an assumption.
 
+Done, mirroring the reference's serving code: `X-API-Key` on `/price` and `/reward`, failing
+closed when unset (an open `/reward` lets anyone steer prices; the key is the project's one
+secret, a Container Apps secret); a per-replica token bucket answering 429 with `Retry-After`;
+bodies over 4 KB refused with 413 before parsing; bounded `user_id`/`product`; `/metrics` with
+latency per route, prices served per policy version, rewards by outcome and
+`dp_price_guard_clamped_total`.
+
 ### F6 · Azure infrastructure — `feat/azure-infrastructure`
 
 - Terraform `azurerm`: resource group, Container Apps environment and app (ingress target port
   **8000**, min replicas 0), Cosmos DB NoSQL provisioned at 1000 RU/s on the free tier, a
-  managed identity with its Cosmos data-plane role assignment, and optionally Log Analytics and
-  Application Insights.
+  managed identity with its Cosmos data-plane role assignment, and the API key as a Container
+  Apps secret. One environment (`staging`). No Log Analytics: logs stream with
+  `az containerapp logs show` during a demo, and nothing is ingested between demos.
 - Verify with `terraform init && terraform validate`; `plan`/`apply` cannot run on a machine
   without `az` and must be reported as unverified rather than assumed.
 - The account-level bootstrap is already written out in `infra/README.md`.
@@ -269,8 +279,11 @@ counter becomes a metric instead of an assumption.
   the workflow's own `GITHUB_TOKEN` and runs `az containerapp update`. `permissions: id-token:
   write`, a `concurrency` group, `environment: staging`, a preflight step that fails loudly on
   an empty variable, every action pinned to a full commit SHA.
-- `retrain.yml`: weekly cron plus `workflow_dispatch`, running the pipeline and registering the
-  policy in MLflow.
+- `retrain.yml`: `workflow_dispatch` only, running the pipeline and registering the policy in
+  MLflow. The dataset never changes, so a weekly cron would spend CI minutes to reproduce the
+  same numbers; the reference's DAG is manual-trigger for the same reason.
+- `main` receives releases from `dev` and publishes a versioned image tag; there is no second,
+  production Container App for an ephemeral demo stack to keep alive.
 
 ### F8 · Monitoring and demo — `feat/monitoring-demo`
 
