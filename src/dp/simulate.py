@@ -29,6 +29,7 @@ import pandas as pd
 
 from dp.data import DATA_DIR
 from dp.demand import CURVES_PARQUET
+from dp.thompson import CATALOGUE_PATH
 
 # The data carries no costs (docs/data-contract.md, item 4), so margin needs an
 # assumption: variable cost as a share of the product's median price. With the median
@@ -40,7 +41,6 @@ COST_SHARE = 0.5
 BASE_CONVERSION = 0.05
 N_ARMS = 5
 LOG_JSONL = DATA_DIR / "processed" / "simulated_log.jsonl"
-CATALOGUE_JSON = DATA_DIR / "processed" / "catalogue.json"
 
 _IMPRESSION_KEYS = ("id", "ts", "user_id", "segment", "arm", "propensity")
 _REWARD_KEYS = ("id", "ts", "impression_id", "converted", "margin", "window_hours")
@@ -387,7 +387,7 @@ def simulate(
     curves: Path, top: int, requests: int, log: Path, log_requests: int
 ) -> None:
     world = load_world(curves, top)
-    write_catalogue(CATALOGUE_JSON, world)
+    write_catalogue(CATALOGUE_PATH, world)
     outcomes = play(world, requests)
     n_products, n_arms = world.arms.shape
     print(
@@ -418,7 +418,7 @@ def simulate(
     )
     written = write_log(log, world, log_requests)
     print(f"uniform log: {written} impressions -> {log}")
-    print(f"catalogue: {n_products} products -> {CATALOGUE_JSON}")
+    print(f"catalogue: {n_products} products -> {CATALOGUE_PATH}")
 
 
 def main(argv: list[str] | None = None) -> int:

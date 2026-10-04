@@ -1,8 +1,8 @@
 """Thompson Sampling over each product's price arms.
 
 A segment is a product (decision in `PLAN.md`, F2). Its arms are absolute prices inside
-the product's observed band, read from the catalogue that `python -m dp.simulate`
-writes. The posterior is a Beta per arm on conversion; the sampler draws a conversion
+the product's observed band, read from the catalogue that `python -m dp.simulate` and
+`python -m dp.retrain` write. The posterior is a Beta per arm on conversion; the sampler draws a conversion
 rate per arm, multiplies by the arm's unit margin and serves the argmax.
 """
 
@@ -20,7 +20,10 @@ from dp.store import Store
 
 PRICE_MIN = float(os.getenv("PRICE_MIN", "0.01"))
 PRICE_MAX = float(os.getenv("PRICE_MAX", "100"))
-POLICY_VERSION = "v1-thompson"
+POLICY_VERSION = os.getenv("POLICY_VERSION", "v1-thompson")
+# The arms the API serves. Versioned in git and shipped in the image, and registered
+# in MLflow by `python -m dp.retrain`; the serving path never reads the registry.
+CATALOGUE_PATH = Path(__file__).with_name("catalogue.json")
 # Thompson has no closed-form probability of picking an arm, so the propensity the
 # data contract asks for is the share of these draws that pick the served arm.
 PROPENSITY_DRAWS = 1000

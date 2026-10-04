@@ -48,6 +48,10 @@ class MemoryContainer:
         self.items[body["id"]] = copy.deepcopy(body)
         return body
 
+    def delete_item(self, item: str, partition_key: str) -> None:
+        if self.items.pop(item, None) is None:
+            raise CosmosResourceNotFoundError(message=f"{item} not found")
+
     def patch_item(
         self, item: str, partition_key: str, patch_operations: list[dict[str, Any]]
     ) -> dict[str, Any]:
@@ -124,15 +128,32 @@ class Store:
             pass  # another replica created it first; the patch below still applies
         container.patch_item(segment, partition_key=segment, patch_operations=operation)
 
-    def record_event(self, event: dict[str, Any]) -> bool:
-        """Append an impression or reward. The event id is the idempotency key, so a
-        replay of the same event is accepted without a second copy. Returns False when
-        the event could not be persisted."""
+    def claim(self, event: dict[str, Any]) -> bool:
+        """Append an event unless its id is already stored: True when this call wrote
+        it, False when it was there. The create is atomic, so two concurrent retries
+        cannot both claim the same id. Raises when the store is down."""
         try:
             self._container("events").create_item(event)
         except CosmosResourceExistsError:
-            return True
+            return False
+        return True
+
+    def record_event(self, event: dict[str, Any]) -> bool:
+        """Append an event, fail-open: a replay is accepted without a second copy, and
+        False means it could not be persisted."""
+        try:
+            self.claim(event)
         except Exception:  # the caller decides what a lost event means
             log.exception("event %s not persisted", event.get("id"))
             return False
         return True
+
+    def event(self, event_id: str) -> dict[str, Any] | None:
+        """The stored event with this id, or None. Raises when the store is down."""
+        try:
+            return self._container("events").read_item(event_id, partition_key=event_id)
+        except CosmosResourceNotFoundError:
+            return None
+
+    def delete_event(self, event_id: str) -> None:
+        self._container("events").delete_item(event_id, partition_key=event_id)

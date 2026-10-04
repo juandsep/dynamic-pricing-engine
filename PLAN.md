@@ -9,7 +9,7 @@ Each phase below is one branch cut from `dev` and one pull request into `dev`
 
 ## Status
 
-F3 landed. Everything merged so far runs on a laptop; Azure is not needed until F6.
+F4 landed. Everything merged so far runs on a laptop; Azure is not needed until F6.
 
 | | State |
 |---|---|
@@ -17,22 +17,23 @@ F3 landed. Everything merged so far runs on a laptop; Azure is not needed until 
 | **F1** ingest and demand model | merged, measured numbers under F1 |
 | **F2** simulator with known propensities | merged, measured numbers under F2 |
 | **F3** Thompson policy and Cosmos store | merged |
-| F4–F9 | not started, F4 is next |
+| **F4** MLflow tracking and the reward contract | merged |
+| F5–F9 | not started, F5 is next |
 
 On `dev` today: `scripts/fetch_data.sh`, `src/dp/data.py` (DuckDB ingest of both sheets to
 Parquet), `src/dp/demand.py` (per-product curves, measured out of sample), `src/dp/simulate.py`
 (simulator on the curves, four policies, uniform log, catalogue, replay), `src/dp/thompson.py`
 (Thompson Sampling per product), `src/dp/store.py` (posteriors and events in Cosmos DB, in
-memory without an endpoint), FastAPI `GET /price` and `/health`, `docs/data-contract.md`, and
-33 offline tests. Not yet: `POST /reward` (F4), and the catalogue does not ship in the
-image, so a container without `CATALOGUE_PATH` answers 404 to every product until F4
-registers it with the policy.
+memory without an endpoint), `src/dp/retrain.py` (MLflow runs and registry), the served
+catalogue `src/dp/catalogue.json`, FastAPI `GET /price`, `POST /reward`, `/health` and
+`/ready`, `docs/data-contract.md`, and 40 offline tests.
 
 ```bash
 scripts/fetch_data.sh          # 44 MB → data/raw/, skipped when already there
 uv run python -m dp.data       # 9s → data/processed/orders.parquet
 uv run python -m dp.demand     # 3s → curves and data/processed/demand_summary.json
 uv run python -m dp.simulate   # 2s → policy table, simulated_log.jsonl, catalogue.json
+uv run python -m dp.retrain    # 4s → the same run tracked in MLflow, best policy registered
 ```
 
 Azure: nothing here has been applied. `infra/` is a README and a bootstrap, there is no
@@ -226,6 +227,24 @@ Done (`tests/unit/test_dp.py`). What landed beyond the check:
 
 Check: through `TestClient`, a duplicated reward does not move the posterior twice and an
 unknown arm comes back 4xx.
+
+Done (`tests/integration/test_api.py`, `tests/unit/test_retrain.py`). What landed:
+
+- `python -m dp.retrain` replaces the `scripts/retrain.py` placeholder: one parent run with
+  `features_sha256` and `curves_sha256`, the curves and the log attached, one child per policy
+  with regret, margin and share of oracle. The best policy other than the oracle (which needs
+  the ground truth) is registered as a new version of `dynamic-pricing-policy`, its artifact
+  being the catalogue. MLflow 3's `register_model` only takes logged models, so the version is
+  created from the artifact directory with `create_model_version`.
+- The catalogue is versioned in git (`src/dp/catalogue.json`, 50 products, 6 KB) and ships in
+  the image, so the serving path still never reads the registry. A container answers `/ready`
+  with 50 products instead of 404 on every price.
+- `POST /reward` claims the reward id with an atomic create before touching the posterior, so
+  two concurrent retries cannot both apply. If the posterior update fails, the claim is
+  removed and the answer is 503, so the retry applies it. A reward outside its window is
+  stored and not applied, as the data contract says.
+- Tracking defaults to a local `sqlite:///mlflow.db`; DagsHub only needs
+  `MLFLOW_TRACKING_URI` and a token, wired in F7.
 
 ### F5 · Serving limits and payload contract — `feat/serving-contract`
 
