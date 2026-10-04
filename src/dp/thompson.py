@@ -35,6 +35,7 @@ class Quote:
     arm: int
     price: float
     propensity: float
+    clamped: bool = False  # the arm fell outside PRICE_MIN..PRICE_MAX
     policy_version: str = POLICY_VERSION
 
 
@@ -69,11 +70,13 @@ class ThompsonSampler:
         draws = self.rng.beta(alpha, beta, size=(PROPENSITY_DRAWS, len(arms)))
         winners = (draws * margin).argmax(axis=1)
         arm = int(winners[0])
+        price = float(np.clip(arms[arm], self.min_price, self.max_price))
         return Quote(
             segment=segment,
             arm=arm,
-            price=float(np.clip(arms[arm], self.min_price, self.max_price)),
+            price=price,
             propensity=float((winners == arm).mean()),
+            clamped=price != float(arms[arm]),
         )
 
     def reward(self, segment: str, arm: int, converted: bool) -> None:

@@ -63,6 +63,7 @@ cache in front of it buys latency the request path does not need.
 
 The container runs on Azure Container Apps behind the platform ingress, scaled to zero when idle.
 The image is built from `docker/Dockerfile` and published to **GHCR** as a public package, which the
-Container App pulls anonymously — no registry credentials, no token to rotate. Secrets are not used
-at all: the app authenticates to Cosmos DB with its managed identity plus a data-plane role
-assignment, and CI authenticates to Azure with OIDC federated credentials.
+Container App pulls anonymously — no registry credentials, no token to rotate. No cloud credential
+exists: the app authenticates to Cosmos DB with its managed identity plus a data-plane role
+assignment, and CI authenticates to Azure with OIDC federated credentials. The one secret is the
+API key callers present, held as a Container Apps secret (free) and never in the repository.

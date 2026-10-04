@@ -54,7 +54,7 @@ evidence.
 | MLflow | Experiment tracking and the policy registry | DagsHub, free hosted |
 | dp-api | FastAPI, `GET /price` and `POST /reward` | Container Apps, scales to zero |
 | GHCR | The API image (383 MB: serving dependencies only, the pipeline stays out), public package pulled anonymously | GitHub |
-| GitHub Actions | CI on every pull request, deploy on `dev`, weekly retrain | GitHub |
+| GitHub Actions | CI on every pull request, deploy on `dev`, retrain on demand | GitHub |
 | Terraform | Everything above the subscription-scope bootstrap | local, applied and destroyed around a demo |
 
 Nothing bills while idle: every resource is free-tier, inside a per-subscription free
@@ -85,6 +85,13 @@ Thompson Sampling from the product's posterior, and logs the impression with its
 and an `impression_id`, so a later `POST /reward` can attribute the outcome. A product
 outside the catalogue is a 404. The served price is always inside `PRICE_MIN` /
 `PRICE_MAX`, and each response carries the policy version that produced it.
+
+Both endpoints need the `X-API-Key` header: the callers are servers (checkout, order
+system), and an open `/reward` would let anyone steer prices. Each replica caps itself at
+`RATE_LIMIT_RPS` (429 with `Retry-After`), bodies over `MAX_BODY_BYTES` are refused with 413
+before parsing, and `/metrics` exposes latency per route, prices served per policy version,
+rewards by outcome and `dp_price_guard_clamped_total`: how often an arm fell outside
+`PRICE_MIN`/`PRICE_MAX`, so the guard is measured instead of assumed.
 
 `POST /reward` is idempotent by request id: a retried reward cannot move the posterior
 twice, and a reward for an arm that was never served is rejected. When the store cannot be
@@ -146,8 +153,9 @@ uv run python -m dp.retrain            # simulate, track in MLflow, register the
 
 uv run uvicorn dp.api:app --reload     # http://localhost:8000
 
-curl "http://localhost:8000/price?user_id=user-42&product=84077"
-curl -X POST http://localhost:8000/reward -H "content-type: application/json" \
+export API_KEY=local-dev                 # set it before starting uvicorn too
+curl -H "X-API-Key: $API_KEY" "http://localhost:8000/price?user_id=user-42&product=84077"
+curl -X POST http://localhost:8000/reward -H "X-API-Key: $API_KEY" -H "content-type: application/json" \
   -d '{"id": "r-1", "impression_id": "<from /price>", "converted": true, "margin": 0.3}'
 ```
 
@@ -175,6 +183,9 @@ demo and destroyed after.
 | `MLFLOW_TRACKING_URI` | `sqlite:///mlflow.db` | Tracking and registry backend |
 | `PRICE_MIN` / `PRICE_MAX` | `0.01` / `100` | Guard on every served price; the arms already sit inside each product's band |
 | `CATALOGUE_PATH` | `src/dp/catalogue.json` (in the package) | Arms and unit cost per product, written by `python -m dp.retrain` |
+| `API_KEY` | none | Required by `/price` and `/reward`; unset, both answer 503 (fail closed) |
+| `RATE_LIMIT_RPS` | `20` | Requests per second per replica before 429; `0` disables it |
+| `MAX_BODY_BYTES` | `4096` | Larger request bodies are refused with 413 before parsing |
 | `POLICY_VERSION` | `v1-thompson` | Policy version reported by `/price` and `/ready`, never a floating alias |
 
 No connection strings and no key vault: the service authenticates to Cosmos with its managed
