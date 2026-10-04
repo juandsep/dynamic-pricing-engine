@@ -38,6 +38,7 @@ def test_fit_recovers_a_known_elasticity() -> None:
     assert dropped == {"too_few_prices": 0, "too_few_observations": 0}
     assert list(curves["stock_code"]) == ["A", "B"]
     assert curves["price_points"].tolist() == [len(PRICES)] * 2
+    assert curves[["price_min", "price_max"]].values.tolist() == [[1.0, 4.0]] * 2
     assert curves["elasticity"].tolist() == pytest.approx([-1.5, -1.5], rel=1e-9)
     assert curves["r2"].tolist() == pytest.approx([1.0, 1.0], abs=1e-9)
     # Both months carry every price, so the curve fitted on the first predicts the second.

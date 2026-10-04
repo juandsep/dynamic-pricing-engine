@@ -48,7 +48,7 @@ evidence.
 | Component | What it does | Runs on |
 |---|---|---|
 | Ingestion | Raw order lines to Parquet, price–response fitted per segment | DuckDB, local or GitHub Actions |
-| `dp.simulate` | Offline replay: per-arm coverage, margin, SNIPS against a fixed price | anywhere, stdlib only |
+| `dp.simulate` | Simulator on the fitted curves (oracle, modal, uniform, Thompson), uniform log with known propensities, replay with SNIPS | anywhere, numpy |
 | Thompson policy | Beta posterior per price arm and segment, with price guards | the API process |
 | Cosmos DB | The posterior document, served arms and rewards | Azure, provisioned 1000 RU/s on the free tier |
 | MLflow | Experiment tracking and the policy registry | DagsHub, free hosted |
@@ -146,10 +146,12 @@ uv run uvicorn dp.api:app --reload     # http://localhost:8000
 curl "http://localhost:8000/price?user_id=user-42"
 ```
 
-Replay a logged policy, with the log format from `docs/data-contract.md`:
+Simulate the four policies on the fitted curves and write a uniform log, then replay it
+(log format in `docs/data-contract.md`):
 
 ```bash
-uv run python -m dp.simulate --events events.jsonl --baseline-price 25
+uv run python -m dp.simulate
+uv run python -m dp.simulate --events data/processed/simulated_log.jsonl --baseline-price 2.95
 ```
 
 ## Reproduce on Azure
@@ -179,7 +181,7 @@ src/dp/
   api.py           FastAPI app: /price, /reward, /health
   thompson.py      Thompson Sampling policy
   store.py         posterior and event store
-  simulate.py      offline replay and propensity-weighted evaluation
+  simulate.py      policy simulator, logged-bandit generator, offline replay
 scripts/           dataset download, retraining
 docs/              architecture and data contract
 infra/             Terraform and the one-off bootstrap
