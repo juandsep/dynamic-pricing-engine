@@ -27,6 +27,8 @@ registry, a serving API, CI/CD and infrastructure as code on Azure.
 
 [![CI](https://github.com/juandsep/dynamic-pricing-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/juandsep/dynamic-pricing-engine/actions/workflows/ci.yml)
 
+**Demo:** [huggingface.co/spaces/sepulvedajd/dynamic-pricing-demo](https://huggingface.co/spaces/sepulvedajd/dynamic-pricing-demo) — the policy comparison and, per product, what each price earns against where Thompson Sampling sent the traffic. Static, no backend.
+
 ## Results
 
 Top 50 products by units sold, five price arms each across the band the product really
