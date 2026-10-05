@@ -21,11 +21,13 @@ registry, a serving API, CI/CD and infrastructure as code on Azure.
   regret and share of the oracle's margin.
 - **Stack:** DuckDB, MLflow, FastAPI, Azure Container Apps, Cosmos DB, Terraform,
   GitHub Actions.
-- **Status:** pipeline, policy, serving API, tracking, drift, Terraform and CI/CD are
-  implemented and tested offline; the Azure stack is planned against a real subscription
-  and applied only around a demo ([PLAN.md](PLAN.md) has the phase-by-phase record).
+- **Status:** every phase is merged and released; the Azure stack was applied, verified end
+  to end and destroyed on 2026-10-05 ([evidence](#verified-on-azure)); it comes back with one
+  `terraform apply` ([PLAN.md](PLAN.md) has the phase-by-phase record).
 
 [![CI](https://github.com/juandsep/dynamic-pricing-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/juandsep/dynamic-pricing-engine/actions/workflows/ci.yml)
+
+**Demo:** [huggingface.co/spaces/sepulvedajd/dynamic-pricing-demo](https://huggingface.co/spaces/sepulvedajd/dynamic-pricing-demo) — the policy comparison and, per product, what each price earns against where Thompson Sampling sent the traffic. Static, no backend.
 
 ## Results
 
@@ -54,6 +56,39 @@ true margin.
 
 ## Architecture
 
+```mermaid
+flowchart LR
+    caller["Caller<br/>checkout or order server"]
+    subgraph gh["GitHub"]
+        ci["ci.yml<br/>lint, tests, image build"]
+        deploy["deploy.yml<br/>image to GHCR, OIDC deploy"]
+        ghcr[("GHCR<br/>public image")]
+    end
+    subgraph az["Azure subscription, rg-dp-staging, eastus2"]
+        subgraph env["Container Apps environment, no Log Analytics"]
+            app["dp-staging-api<br/>FastAPI, 0.25 vCPU, 0 to 1 replica"]
+        end
+        subgraph cosmos["Cosmos DB, free tier, keys disabled"]
+            post[("posteriors")]
+            events[("events")]
+        end
+        entra["Entra ID<br/>federated credentials"]
+    end
+    hf["Hugging Face Space<br/>static demo"]
+
+    caller -- "X-API-Key" --> app
+    app -- "managed identity<br/>Data Contributor" --> post
+    app -- "managed identity" --> events
+    deploy -- "push" --> ghcr
+    ghcr -- "anonymous pull" --> app
+    deploy -- "OIDC token" --> entra
+    deploy -- "az containerapp update<br/>Contributor on the RG" --> app
+```
+
+More diagrams, all tied to the code: the request sequence, the training pipeline, the module
+dependencies read from the graphify code graph, and the delivery flow are in
+[docs/diagrams.md](docs/diagrams.md).
+
 | Component | What it does | Runs on |
 |---|---|---|
 | Ingestion and demand | Raw order lines to Parquet, a price–response curve per product | DuckDB, local or GitHub Actions |
@@ -72,6 +107,22 @@ The prices behind each rejected alternative — Redis, ACR, a self-hosted MLflow
 are in [infra/README.md](infra/README.md).
 
 ## Training pipeline
+
+```mermaid
+flowchart LR
+    uci[("UCI Online Retail II<br/>44 MB workbook")] --> data["dp.data<br/>DuckDB ingest and cleaning"]
+    data --> orders[("orders.parquet<br/>955,850 lines")]
+    orders --> demand["dp.demand<br/>log-log curve per product"]
+    demand --> curves[("demand_curves.parquet<br/>2,759 curves")]
+    curves --> sim["dp.simulate<br/>oracle, modal, uniform, Thompson"]
+    sim --> log[("simulated log<br/>known propensities")]
+    sim --> retrain["dp.retrain"]
+    retrain --> mlflow[("MLflow<br/>runs and registry")]
+    retrain --> cat[("catalogue.json<br/>+ reference profile")]
+    cat --> image["API image"]
+    log --> drift["dp.drift<br/>PSI vs reference"]
+    cat --> drift
+```
 
 1. **ingest** (`dp.data`) — DuckDB reads both sheets of the workbook and writes Parquet,
    keeping the price actually charged on every order line and dropping returns,
@@ -125,6 +176,31 @@ UCI Online Retail II does not change, so retraining it reproduces the same numbe
 live traffic, retrain when a new randomised price test closes, when the margin measured on
 that test drops, or when the traffic mix drifts — a segment that changes mid-log
 invalidates the history behind the posterior.
+
+## Verified on Azure
+
+The stack was applied to a real subscription on 2026-10-05, exercised, measured and destroyed
+the same day. What that run proved, beyond the 49 offline tests:
+
+| Check | Result |
+|---|---|
+| Deploy by OIDC | `deploy.yml` logged in with a federated credential (no stored key), rolled the app onto the commit's image and passed its smoke test on `/ready` |
+| Managed identity to Cosmos | a reward applied to the posterior through the app's identity, with account keys disabled |
+| Idempotent rewards | the same reward id answered as a duplicate; the posterior moved once |
+| Guards | 401 without the key, 404 for an unknown product or impression, 413 over 4 KB, 429 with `Retry-After: 1` on 5 of 40 concurrent requests |
+| Latency | `/price` p95 under 25 ms server side (238 of 240 requests in the 25 ms bucket); the first request after scaling from zero took about 3 s |
+| Cost | 0 USD: Cosmos free tier, Container Apps inside the monthly grant, scaled to zero, destroyed after the run |
+
+The evidence is in [docs/evidence](docs/evidence): the verbatim
+[live session](docs/evidence/live-session.md), the
+[Azure inventory](docs/evidence/azure-inventory.md) as the CLI reported it before the destroy,
+and screenshots.
+
+| API contract (Swagger, from the live app) | Deploy run (image, then OIDC deploy) |
+|---|---|
+| ![Swagger UI of the deployed API](docs/evidence/swagger.png) | ![GitHub Actions deploy run](docs/evidence/deploy-run.png) |
+
+![Static demo on Hugging Face](docs/evidence/demo-space.png)
 
 ## Data
 
@@ -216,12 +292,33 @@ src/dp/
   store.py         posterior and event store
   simulate.py      policy simulator, logged-bandit generator, offline replay
 scripts/           dataset download
-docs/              architecture and data contract
+docs/              architecture, data contract, diagrams, evidence from the Azure run
 infra/             Terraform and the one-off bootstrap
 monitoring/        what /metrics exposes and how drift is read
 demo/              static page over the simulation (Hugging Face Space)
 tests/             unit and integration tests
 ```
+
+## What is left
+
+Done means every phase in [PLAN.md](PLAN.md) is merged, released to `main` and verified on
+Azure. What remains is either an owner's account step or a limit the design accepts on purpose:
+
+- **Tracking on DagsHub.** `retrain.yml` refuses to run until `MLFLOW_TRACKING_URI`,
+  `MLFLOW_TRACKING_USERNAME` and the `MLFLOW_TRACKING_PASSWORD` secret exist; locally,
+  tracking goes to SQLite and has been run.
+- **Learning from real traffic offline.** Rewards update the live posterior one by one;
+  retraining still rebuilds from the fitted curves, not from the `events` container. Replaying
+  events (including the late rewards the window excluded) is the next step once there is
+  traffic worth learning from.
+- **Causal elasticities.** The curves come from observational prices, so they are an upper
+  bound; a randomised price test is what would turn the simulated world into a measured one.
+- **Scale.** One replica, a per-replica rate limit and one API key. The `ponytail:` notes in
+  the code name the trigger for each upgrade (Redis, per-key limits, a transactional batch).
+
+To bring the stack back for a demo: `terraform apply` in `infra/` (about 7 minutes, Cosmos is
+the slow part), then `gh variable set AZURE_CONTAINER_APP --body dp-staging-api` so pushes to
+`dev` deploy again.
 
 ## Contributing
 
