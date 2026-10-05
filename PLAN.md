@@ -12,6 +12,12 @@ Each phase below is one branch cut from `dev` and one pull request into `dev`
 F9 landed: every phase is merged. Everything runs on a laptop; Azure only hosts the demo,
 applied before it and destroyed after.
 
+Staging was applied on 2026-10-05 and checked end to end: `/ready` with 50 products, a price,
+a reward applied to the posterior in Cosmos through the managed identity (the atomic `incr`
+on an array index, until then only exercised in memory), the same reward answered as a
+duplicate, 401 without the key, and `deploy.yml` logging in by OIDC, rolling the app onto the
+commit's image and passing its smoke test.
+
 | | State |
 |---|---|
 | Foundations, data contract, offline replay | merged |
@@ -335,7 +341,7 @@ implemented, and fill in the Results table with real numbers.
 |---|---|---|
 | Thompson's share of the oracle's margin (simulated world, top 50 products) | at least 90% | 93.9% |
 | Margin over the price the retailer usually charged | positive | +51.5% (51,776 vs 34,165) |
-| p95 latency of `/price` | below 50 ms | not measured on Azure yet; `dp_request_seconds` reports it per replica |
+| p95 latency of `/price`, server side | below 50 ms | under 25 ms: 238 of 240 requests in the 25 ms bucket on staging (2026-10-05); the first request after a start took over 2.5 s while the Cosmos client and its token were created |
 | Prices outside `PRICE_MIN`/`PRICE_MAX` | zero | zero by construction: clamped, and every clamp counted in `/metrics` |
 | Fixed monthly cost | zero | zero: free tier, free grant, or destroyed after the demo |
 

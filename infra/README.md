@@ -156,17 +156,21 @@ APP_NAME="gh-dynamic-pricing-engine"
 APP_ID=$(az ad app create --display-name "$APP_NAME" --query appId -o tsv)
 az ad sp create --id "$APP_ID"          # no-op error is fine if it already exists
 
+# GitHub stamps the OIDC subject with immutable owner and repository IDs:
+# repo:<owner>@<owner id>/<repo>@<repo id>:... (not repo:<owner>/<repo>:...).
+SUBJECT="repo:juandsep@$(gh api users/juandsep --jq .id)/dynamic-pricing-engine@$(gh api repos/juandsep/dynamic-pricing-engine --jq .id)"
+
 cat > fc-dev.json <<EOF
 {"name": "github-dev",
  "issuer": "https://token.actions.githubusercontent.com",
- "subject": "repo:juandsep/dynamic-pricing-engine:ref:refs/heads/dev",
+ "subject": "$SUBJECT:ref:refs/heads/dev",
  "audiences": ["api://AzureADTokenExchange"]}
 EOF
 
 cat > fc-staging.json <<EOF
 {"name": "github-environment-staging",
  "issuer": "https://token.actions.githubusercontent.com",
- "subject": "repo:juandsep/dynamic-pricing-engine:environment:staging",
+ "subject": "$SUBJECT:environment:staging",
  "audiences": ["api://AzureADTokenExchange"]}
 EOF
 
@@ -179,6 +183,11 @@ rm fc-dev.json fc-staging.json
 stamps the token's `sub` claim with the *environment*, not the branch — a credential that only trusts
 `ref:refs/heads/dev` is rejected by `azure/login` with an unhelpful error. Create whichever
 credentials match the workflow as written.
+
+**The subject carries IDs, not just names.** A credential written as
+`repo:juandsep/dynamic-pricing-engine:...` fails with `AADSTS700213: No matching federated identity
+record found for presented assertion subject 'repo:juandsep@30062465/dynamic-pricing-engine@1396685418:...'`.
+The error message prints the exact subject GitHub sent; copy it if in doubt.
 
 ### 6. Role assignment
 
