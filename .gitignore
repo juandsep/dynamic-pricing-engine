@@ -22,6 +22,9 @@ htmlcov/
 .env.*
 !.env.example
 
+# Data (see docs/data-contract.md; refresh with scripts/fetch_data.sh)
+data/
+
 # Terraform
 infra/.terraform/
 infra/*.tfstate
@@ -33,3 +36,13 @@ infra/tfplan
 .DS_Store
 .idea/
 .vscode/
+
+# Code graph (graphify, rebuilt by the vault refresh hook)
+graphify-out/
+
+# Agent instructions that stay on this machine
+CLAUDE.local.md
+
+# MLflow local tracking (MLFLOW_TRACKING_URI unset)
+mlflow.db
+mlruns/

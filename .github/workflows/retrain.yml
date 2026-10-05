@@ -1,0 +1,52 @@
+name: Retrain
+
+# Manual trigger only: the dataset never changes, so a schedule would spend CI
+# minutes reproducing the same numbers. Run it after a change to the demand model,
+# the simulator or the policy.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check the tracking configuration
+        env:
+          MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_USERNAME: ${{ vars.MLFLOW_TRACKING_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+        run: |
+          missing=0
+          for name in MLFLOW_TRACKING_URI MLFLOW_TRACKING_USERNAME MLFLOW_TRACKING_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is empty; a run tracked nowhere is not a retrain"
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - run: uv sync --locked
+
+      # UCI throttles repeat downloads (about 11 KB/s on the second fetch).
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: data/raw
+          key: uci-online-retail-ii-${{ hashFiles('scripts/fetch_data.sh') }}
+
+      - name: Ingest, fit, simulate, track and register
+        env:
+          MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_USERNAME: ${{ vars.MLFLOW_TRACKING_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+        run: |
+          scripts/fetch_data.sh
+          uv run python -m dp.data
+          uv run python -m dp.demand
+          uv run python -m dp.retrain

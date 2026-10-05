@@ -1,39 +1,86 @@
-"""Thompson Sampling policy for real-time price assignment."""
+"""Thompson Sampling over each product's price arms.
+
+A segment is a product (decision in `PLAN.md`, F2). Its arms are absolute prices inside
+the product's observed band, read from the catalogue that `python -m dp.simulate` and
+`python -m dp.retrain` write. The posterior is a Beta per arm on conversion; the sampler draws a conversion
+rate per arm, multiplies by the arm's unit margin and serves the argmax.
+"""
 
 from __future__ import annotations
 
+import json
 import os
-import random
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-_PRICE_MIN = int(os.getenv("PRICE_MIN", "10"))
-_PRICE_MAX = int(os.getenv("PRICE_MAX", "100"))
+import numpy as np
+
+from dp.store import Store
+
+PRICE_MIN = float(os.getenv("PRICE_MIN", "0.01"))
+PRICE_MAX = float(os.getenv("PRICE_MAX", "100"))
+POLICY_VERSION = os.getenv("POLICY_VERSION", "v1-thompson")
+# The arms the API serves. Versioned in git and shipped in the image, and registered
+# in MLflow by `python -m dp.retrain`; the serving path never reads the registry.
+CATALOGUE_PATH = Path(__file__).with_name("catalogue.json")
+# Thompson has no closed-form probability of picking an arm, so the propensity the
+# data contract asks for is the share of these draws that pick the served arm.
+PROPENSITY_DRAWS = 1000
+
+
+@dataclass(frozen=True)
+class Quote:
+    segment: str
+    arm: int
+    price: float
+    propensity: float
+    clamped: bool = False  # the arm fell outside PRICE_MIN..PRICE_MAX
+    policy_version: str = POLICY_VERSION
+
+
+def load_catalogue(path: Path | str) -> dict[str, dict[str, Any]]:
+    """`{segment: {"arms": [prices], "cost": unit_cost}}`."""
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 class ThompsonSampler:
-    """Draws a price from the Beta posterior of every price arm.
-
-    The policy keeps one posterior per (arm, segment) pair. When called, each
-    arm offers a sample and the arm with the highest value wins; the outcome of
-    the served price later updates that posterior.
-
-    The shipped version is a placeholder that samples uniformly inside the
-    configured range — the interface is what the rest of the service depends on.
-    """
-
-    def __init__(self, price_range: tuple[int, int] | None = None) -> None:
-        if price_range is None:
-            price_range = (_PRICE_MIN, _PRICE_MAX)
-        self.min_price, self.max_price = price_range
-        if self.min_price > self.max_price:
+    def __init__(
+        self,
+        catalogue: dict[str, dict[str, Any]],
+        store: Store,
+        rng: np.random.Generator | None = None,
+        price_range: tuple[float, float] = (PRICE_MIN, PRICE_MAX),
+    ) -> None:
+        if price_range[0] > price_range[1]:
             raise ValueError("PRICE_MIN must be less than or equal to PRICE_MAX")
+        self.catalogue = catalogue
+        self.store = store
+        self.rng = rng or np.random.default_rng()
+        self.min_price, self.max_price = price_range
 
-    def sample(self, user_id: str, features: dict[str, Any] | None = None) -> int:
-        """Return a price for `user_id`, always inside the allowed range.
+    def _arms(self, segment: str) -> tuple[np.ndarray, np.ndarray]:
+        entry = self.catalogue[segment]  # KeyError: unknown product
+        arms = np.asarray(entry["arms"], dtype=float)
+        return arms, arms - float(entry["cost"])
 
-        Args:
-            user_id: customer the price is quoted to.
-            features: feature vector from the online store, used to pick the segment.
-        """
-        # TODO: draw per-arm from Beta(alpha, beta) and return the argmax.
-        return random.randint(self.min_price, self.max_price)
+    def quote(self, segment: str) -> Quote:
+        arms, margin = self._arms(segment)
+        alpha, beta = self.store.posterior(segment, len(arms))
+        draws = self.rng.beta(alpha, beta, size=(PROPENSITY_DRAWS, len(arms)))
+        winners = (draws * margin).argmax(axis=1)
+        arm = int(winners[0])
+        price = float(np.clip(arms[arm], self.min_price, self.max_price))
+        return Quote(
+            segment=segment,
+            arm=arm,
+            price=price,
+            propensity=float((winners == arm).mean()),
+            clamped=price != float(arms[arm]),
+        )
+
+    def reward(self, segment: str, arm: int, converted: bool) -> None:
+        arms, _ = self._arms(segment)
+        if not 0 <= arm < len(arms):
+            raise ValueError(f"{segment} has no arm {arm}")
+        self.store.add_outcome(segment, arm, converted, len(arms))
