@@ -17,6 +17,9 @@ a reward applied to the posterior in Cosmos through the managed identity (the at
 on an array index, until then only exercised in memory), the same reward answered as a
 duplicate, 401 without the key, and `deploy.yml` logging in by OIDC, rolling the app onto the
 commit's image and passing its smoke test.
+The evidence (verbatim live session, CLI inventory, screenshots) is in `docs/evidence/`, and
+the stack was destroyed afterwards the same day; `AZURE_CONTAINER_APP` was removed so pushes to
+`dev` publish the image without deploying.
 
 | | State |
 |---|---|
