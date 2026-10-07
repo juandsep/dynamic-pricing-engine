@@ -109,6 +109,10 @@ resource "azurerm_container_app" "api" {
         value = azurerm_cosmosdb_account.this.endpoint
       }
       env {
+        name  = "EXPERIMENT_SHARE"
+        value = tostring(var.experiment_share)
+      }
+      env {
         name        = "API_KEY"
         secret_name = "api-key" # pragma: allowlist secret
       }
@@ -138,5 +142,16 @@ resource "azurerm_cosmosdb_sql_role_assignment" "api" {
   account_name        = azurerm_cosmosdb_account.this.name
   role_definition_id  = "${azurerm_cosmosdb_account.this.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002"
   principal_id        = azurerm_container_app.api.identity[0].principal_id
+  scope               = azurerm_cosmosdb_account.this.id
+}
+
+# Read-only data access for the person who applies the stack (their Azure CLI login),
+# so `python -m dp.export` can read the event log with local keys disabled.
+resource "azurerm_cosmosdb_sql_role_assignment" "operator" {
+  count               = var.operator_can_read_events ? 1 : 0
+  resource_group_name = data.azurerm_resource_group.this.name
+  account_name        = azurerm_cosmosdb_account.this.name
+  role_definition_id  = "${azurerm_cosmosdb_account.this.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000001"
+  principal_id        = data.azurerm_client_config.current.object_id
   scope               = azurerm_cosmosdb_account.this.id
 }

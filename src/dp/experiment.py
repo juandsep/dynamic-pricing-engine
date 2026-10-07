@@ -26,6 +26,7 @@ from typing import Any
 import numpy as np
 
 from dp.simulate import attribute, load_events
+from dp.thompson import EXPERIMENT_VERSION
 
 
 def _fit(x: np.ndarray, n: np.ndarray, k: np.ndarray) -> tuple[float, float]:
@@ -84,6 +85,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--events", type=Path, required=True)
     parser.add_argument("--target-se", type=float, default=0.2)
     parser.add_argument(
+        "--truth",
+        type=Path,
+        help="hidden curves from dp.shoppers, to check the estimate against",
+    )
+    parser.add_argument(
         "--observational",
         type=Path,
         default=Path("data/processed/demand_curves.parquet"),
@@ -92,6 +98,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     impressions, rewards = load_events(args.events)
+    # Only randomised impressions identify the curve; the policy's own choices are
+    # what the observational data already suffers from.
+    total = len(impressions)
+    impressions = [
+        i
+        for i in impressions
+        if i.get("policy_version", EXPERIMENT_VERSION) == EXPERIMENT_VERSION
+    ]
+    if len(impressions) < total:
+        print(f"read {len(impressions)} randomised impressions of {total}")
     if any(
         not math.isclose(float(i["propensity"]), float(impressions[0]["propensity"]))
         for i in impressions
@@ -109,23 +125,38 @@ def main(argv: list[str] | None = None) -> int:
         curves = pd.read_parquet(args.observational).set_index("stock_code")
         observed = curves["elasticity"].to_dict()
 
-    print(
-        f"{'product':<10} {'causal':>8} {'se':>6} {'observ.':>8} {'requests':>9} {'needed':>8}"
-    )
+    hidden: dict[str, float] = {}
+    if args.truth:
+        hidden = {
+            code: t["elasticity"]
+            for code, t in json.loads(args.truth.read_text(encoding="utf-8")).items()
+        }
+
+    header = f"{'product':<10} {'causal':>8} {'se':>6} {'observ.':>8}"
+    header += f" {'hidden':>8} {'z':>6}" if hidden else ""
+    print(header + f" {'requests':>9} {'needed':>8}")
+    zs = []
     for segment, e in sorted(estimates.items(), key=lambda kv: -kv[1]["requests"]):
         needed = requests_needed(e["se"], e["requests"], args.target_se)
         obs = observed.get(segment)
-        obs_text = f"{obs:>8.2f}" if obs is not None else f"{'-':>8}"
-        print(
-            f"{segment:<10} {e['elasticity']:>8.2f} {e['se']:>6.2f} {obs_text} "
-            f"{e['requests']:>9} {needed:>8}"
-        )
-    ses = [e["se"] for e in estimates.values()]
-    print(
-        json.dumps(
-            {"products": len(estimates), "median_se": round(float(np.median(ses)), 3)}
-        )
-    )
+        line = f"{segment:<10} {e['elasticity']:>8.2f} {e['se']:>6.2f} "
+        line += f"{obs:>8.2f}" if obs is not None else f"{'-':>8}"
+        if hidden:
+            truth = hidden.get(segment)
+            if truth is None:
+                line += f" {'-':>8} {'-':>6}"
+            else:
+                zs.append((e["elasticity"] - truth) / e["se"])
+                line += f" {truth:>8.2f} {zs[-1]:>6.2f}"
+        print(line + f" {e['requests']:>9} {needed:>8}")
+    summary: dict[str, Any] = {
+        "products": len(estimates),
+        "median_se": round(float(np.median([e["se"] for e in estimates.values()])), 3),
+    }
+    if zs:
+        # Honest errors put about 95% of the truths within two standard errors.
+        summary["within_2_se"] = f"{sum(abs(z) < 2 for z in zs)}/{len(zs)}"
+    print(json.dumps(summary))
     return 0
 
 
