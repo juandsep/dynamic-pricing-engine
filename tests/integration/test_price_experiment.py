@@ -83,3 +83,19 @@ def test_the_test_recovers_the_hidden_curve_not_the_observational_one(
     e = estimate(attribute(*load_events(out))[0])["A"]
     assert abs(e["elasticity"] - (-1.2)) < 3 * e["se"]
     assert abs(e["elasticity"] - (-2.0)) > 3 * e["se"]  # not the observational slope
+
+
+def test_a_dropped_connection_fails_one_shopper_not_the_run():
+    truth = {"A": {"elasticity": -1.2, "median_price": 2.0, "base_conversion": 0.2}}
+    calls = []
+
+    def flaky(method, path, body):
+        calls.append(path)
+        if len(calls) == 2:
+            return 0, {}  # what http_sender returns on a timeout
+        return 200, {"price": 2.0, "impression_id": f"i-{len(calls)}"}
+
+    stats = run(flaky, truth, {"A": 0.5}, requests=5, rps=0, workers=1, start=100)
+    assert stats["failed"] == 1
+    assert stats["served"] == 4
+    assert all("shopper-1" in p for p in calls if p.startswith("/price"))  # ids 100-104
