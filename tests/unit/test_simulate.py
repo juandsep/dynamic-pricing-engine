@@ -48,6 +48,7 @@ def test_impression_without_reward_is_censored_to_zero(tmp_path):
     assert rows == [
         {
             "arm": 25,
+            "arm_index": None,
             "segment": "default",
             "propensity": 0.5,
             "converted": False,

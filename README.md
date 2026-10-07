@@ -138,6 +138,9 @@ flowchart LR
    catalogue it serves and the reference profile drift is measured against.
 5. **drift** (`dp.drift`) — PSI of an impression log against that reference profile, on the
    product mix and on where in each product's band the served price sits.
+6. **rebuild** (`dp.rebuild`) — recounts every posterior from the event log, so rewards that
+   arrived after their window, or whose live update failed, still reach the policy. A dry run
+   unless `--write`.
 
 ## Serving
 
@@ -289,6 +292,7 @@ src/dp/
   catalogue.json   the served arms and unit cost per product (written by dp.retrain)
   retrain.py       pipeline run tracked in MLflow, best policy registered
   drift.py         PSI of live traffic against the registered reference profile
+  rebuild.py       posteriors recounted from the event log
   store.py         posterior and event store
   simulate.py      policy simulator, logged-bandit generator, offline replay
 scripts/           dataset download
@@ -307,10 +311,6 @@ Azure. What remains is either an owner's account step or a limit the design acce
 - **Tracking on DagsHub.** `retrain.yml` refuses to run until `MLFLOW_TRACKING_URI`,
   `MLFLOW_TRACKING_USERNAME` and the `MLFLOW_TRACKING_PASSWORD` secret exist; locally,
   tracking goes to SQLite and has been run.
-- **Learning from real traffic offline.** Rewards update the live posterior one by one;
-  retraining still rebuilds from the fitted curves, not from the `events` container. Replaying
-  events (including the late rewards the window excluded) is the next step once there is
-  traffic worth learning from.
 - **Causal elasticities.** The curves come from observational prices, so they are an upper
   bound; a randomised price test is what would turn the simulated world into a measured one.
 - **Scale.** One replica, a per-replica rate limit and one API key. The `ponytail:` notes in

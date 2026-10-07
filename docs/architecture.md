@@ -29,11 +29,11 @@ offline  UCI data ──▶ dp.data ──▶ dp.demand ──▶ dp.retrain ─
 - Offline: retraining rebuilds the catalogue (arms, unit cost) and the reference profile from
   the data and registers them as a new immutable version; nothing is overwritten.
 
-```json
-// ponytail: retraining reads the fitted curves, not the events in Cosmos. Replay the
-// `events` container into the posterior (the late rewards the window excluded) once the
-// service has real traffic worth learning from offline.
-```
+- Rebuild: `python -m dp.rebuild --write` recounts every product's posterior from the `events`
+  container, so the outcomes the live path never applied (rewards after their window, an
+  update that failed after its claim could not be rolled back) reach it. It is a dry run
+  without `--write`, and is meant to run with traffic paused: a reward patched between its
+  scan and its write would be overwritten, though it stays in the log for the next rebuild.
 
 ## Stores
 
