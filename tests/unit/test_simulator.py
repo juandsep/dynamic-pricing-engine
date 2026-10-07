@@ -108,3 +108,12 @@ def test_catalogue_is_what_the_serving_sampler_reads(tmp_path, world) -> None:
     catalogue = load_catalogue(path)
     assert list(catalogue) == ["ELASTIC", "INELASTIC"]
     assert catalogue["ELASTIC"] == {"arms": [1.0, 1.5, 2.0, 2.5, 3.0], "cost": 1.0}
+
+
+def test_the_learning_curve_adds_up_and_climbs(world, outcomes) -> None:
+    thompson = outcomes["thompson"]
+    assert thompson.by_step.sum() == pytest.approx(thompson.expected)
+    tenth = REQUESTS // 10
+    assert thompson.by_step[-tenth:].mean() > thompson.by_step[:tenth].mean()
+    oracle = outcomes["oracle"].by_step
+    assert np.allclose(oracle, oracle[0])  # the oracle has nothing to learn

@@ -271,6 +271,9 @@ class Outcome:
     share_of_oracle: float
     pulls: np.ndarray  # (products, arms)
     settled_at: np.ndarray | None = None  # per product, requests until settled
+    # Expected margin of the arms served at each step, summed over products: the
+    # learning curve, without the noise of which requests happened to convert.
+    by_step: np.ndarray | None = None
 
 
 def play(
@@ -298,6 +301,7 @@ def play(
     outcomes: dict[str, Outcome] = {}
     for name, choose in policies.items():
         pulls = np.zeros((n_products, n_arms), dtype=int)
+        by_step = np.zeros(requests)
         margin = 0.0
         # Last step at which the posterior-mean best arm was not the oracle's.
         last_wrong = np.full(n_products, -1)
@@ -305,6 +309,7 @@ def play(
             arm = choose()
             converted = draws[step] < world.conversion[rows, arm]
             pulls[rows, arm] += 1
+            by_step[step] = expected[rows, arm].sum()
             margin += float((converted * world.unit_margin[rows, arm]).sum())
             if name == "thompson":
                 thompson.update(arm, converted)
@@ -319,6 +324,7 @@ def play(
             share_of_oracle=earned / oracle_total,
             pulls=pulls,
             settled_at=last_wrong + 1 if name == "thompson" else None,
+            by_step=by_step,
         )
     return outcomes
 
