@@ -169,8 +169,10 @@
   <section>
     <h2>Learning curve</h2>
     <p>Share of the best possible margin earned so far, as requests come in. The best fixed price
-      (the oracle) needs the true curve, which no real policy has. Thompson Sampling starts no better
-      than guessing and closes the gap as it learns; the alternatives never improve.
+      (the oracle) needs the true curve, which no real policy has. Thompson Sampling starts even below
+      random pricing: with no data, its beliefs are the same for every price, so the dearest
+      prices, with the widest margin, look best and get tried first. Then it learns; the
+      alternatives never improve.
       <span id="curve-note"></span></p>
     <div class="chart-card">
       <div class="legend" id="curve-legend"></div>
@@ -216,6 +218,7 @@
     <div class="notes">
       <div class="note"><h3>A known world, not the retailer's books</h3><p>The prices in the data were set by the retailer, not randomised, so the fitted elasticities are an upper bound. The simulation is a world where the true answer is known, which is what lets the policy be judged.</p></div>
       <div class="note"><h3>Two assumptions fill gaps in the data</h3><p id="assumptions"></p></div>
+      <div class="note"><h3>The retailer already priced well</h3><p>Within the band it really sold at, the retailer's usual price is the best of the five in most products. Thompson Sampling is not told that: it pays for exploring first, and earns its small lead by also finding the products where the usual price was not the best.</p></div>
       <div class="note"><h3>Why the cheapest price often wins here</h3><p>Most of these products are very price-sensitive in the data (median elasticity around −2.7), so in this world a lower price sells enough more to pay for itself.</p></div>
       <div class="note"><h3>What would make it real</h3><p>A randomised price test on live traffic. The serving API already logs every price with the probability it was chosen, which is exactly what that test needs.</p></div>
     </div>
@@ -364,7 +367,7 @@ fetch("data.json").then(r => r.json()).then(data => {
   const share = Object.fromEntries(data.policies.map(p => [p.policy, p.share_of_oracle]));
   document.getElementById("kpis").innerHTML = [
     [pct(share.thompson), "of the best fixed price's margin, learned without knowing the curve"],
-    [`+${Math.round(data.margin_vs_modal * 100)}%`, "margin over the price the retailer usually charged"],
+    [`+${(data.margin_vs_modal * 100).toFixed(1)}%`, `margin over the retailer's usual price, which was already the best in ${data.usual_is_best} of ${data.products_count} products`],
     [fmt(data.settled.median_requests), `median requests to settle on the best price (${data.settled.products} of ${data.products_count} products)`],
     ["< 25 ms", "server-side p95 to quote a price, measured live on Azure"],
   ].map(([v, l]) => `<div class="kpi"><div class="value">${v}</div><div class="label">${l}</div></div>`).join("");

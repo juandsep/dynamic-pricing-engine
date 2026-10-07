@@ -61,6 +61,7 @@ def main() -> None:
             "products": len(done),
             "median_requests": round(float(np.median(done))),
         },
+        "usual_is_best": int((world.modal_arm == world.oracle_arm).sum()),
         "curve": {"steps": steps.tolist(), "share_of_oracle": curve},
         "products": products,
     }

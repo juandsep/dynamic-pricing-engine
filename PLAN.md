@@ -192,17 +192,22 @@ same requests and same conversion draws for every policy):
 
 | Policy | Expected margin | Regret | % of oracle |
 |---|---|---|---|
-| Oracle (best fixed arm per product) | 55,161 | 0 | 100% |
-| Thompson Sampling | 51,776 | 3,385 | 93.9% |
-| Modal price | 34,165 | 20,996 | 61.9% |
-| Uniform | 26,843 | 28,318 | 48.7% |
+| Oracle (best fixed arm per product) | 53,125 | 0 | 100% |
+| Thompson Sampling | 49,981 | 3,144 | 94.1% |
+| Modal price | 48,450 | 4,675 | 91.2% |
+| Uniform | 33,395 | 19,730 | 62.9% |
 
-- Thompson's posterior-mean best arm settled on the oracle's in 46 of 50 products; median
-  910 requests, p90 8,090. The four that did not settle have their two best arms within
-  5% of each other: their regret is small even when the choice flips.
-- The oracle sits on the cheapest arm for 42 of 50 products. That is the F1 elasticities
+- Arms span the 5th to 95th percentile of each product's observed prices. They first spanned
+  min to max, and one sale far from the rest stretched a band (84879: 26.04 against a median
+  of 1.69), which put most arms on prices the retailer barely used, made the usual price look
+  poor (61.9% of the oracle) and inflated Thompson's lead over it to +52%. Within the real
+  band the usual price is already the best arm in 41 of 50 products.
+- Thompson's posterior-mean best arm settled on the oracle's in 45 of 50 products; median
+  770 requests, p90 9,286. The five that did not settle have their two best arms within 2.2%
+  of each other: their regret is small even when the choice flips.
+- The oracle sits on the cheapest arm for 44 of 50 products. That is the F1 elasticities
   speaking (median −2.7 on these products, an upper bound): in the simulated world a lower
-  price always sells enough more to pay for itself. The 61.9% for the modal price is a
+  price always sells enough more to pay for itself. The 91.2% for the modal price is a
   property of that world, not a claim about what the retailer left on the table.
 - The uniform log (100,000 impressions, propensity 1/5) replays through the same
   `--events` path; on one product, SNIPS from it recovers each arm's true expected margin to
@@ -342,8 +347,8 @@ implemented, and fill in the Results table with real numbers.
 
 | Metric | Target | Measured |
 |---|---|---|
-| Thompson's share of the oracle's margin (simulated world, top 50 products) | at least 90% | 93.9% |
-| Margin over the price the retailer usually charged | positive | +51.5% (51,776 vs 34,165) |
+| Thompson's share of the oracle's margin (simulated world, top 50 products) | at least 90% | 94.1% |
+| Margin over the price the retailer usually charged | positive | +3.2% (49,981 vs 48,450), overtaking it after about 10,500 requests per product |
 | p95 latency of `/price`, server side | below 50 ms | under 25 ms: 238 of 240 requests in the 25 ms bucket on staging (2026-10-05); the first request after a start took over 2.5 s while the Cosmos client and its token were created |
 | Prices outside `PRICE_MIN`/`PRICE_MAX` | zero | zero by construction: clamped, and every clamp counted in `/metrics` |
 | Fixed monthly cost | zero | zero: free tier, free grant, or destroyed after the demo |

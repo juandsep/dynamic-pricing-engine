@@ -115,8 +115,11 @@ def fit_curves(
                 "median_price": float(group["price"].median()),
                 # The band the F2 arms live in, and the price that sold the most units:
                 # what the business actually charged, the baseline a policy has to beat.
-                "price_min": float(group["price"].min()),
-                "price_max": float(group["price"].max()),
+                # 5th to 95th percentile, not min to max: one bulk or mistyped price
+                # (84879 sold at 26.04 against a median of 1.69)
+                # would otherwise stretch the band and waste an arm on it.
+                "price_min": float(group["price"].quantile(0.05)),
+                "price_max": float(group["price"].quantile(0.95)),
                 "modal_price": float(group.groupby("price")["units"].sum().idxmax()),
                 "units": int(group["units"].sum()),
             }
