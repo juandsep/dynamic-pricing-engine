@@ -138,7 +138,9 @@ flowchart LR
    catalogue it serves and the reference profile drift is measured against.
 5. **drift** (`dp.drift`) — PSI of an impression log against that reference profile, on the
    product mix and on where in each product's band the served price sits.
-6. **rebuild** (`dp.rebuild`) — recounts every posterior from the event log, so rewards that
+6. **experiment** (`dp.experiment`) — reads a randomised price test: the causal elasticity
+   per product and how many requests the test needs for a target precision.
+7. **rebuild** (`dp.rebuild`) — recounts every posterior from the event log, so rewards that
    arrived after their window, or whose live update failed, still reach the policy. A dry run
    unless `--write`.
 
@@ -293,6 +295,7 @@ src/dp/
   retrain.py       pipeline run tracked in MLflow, best policy registered
   drift.py         PSI of live traffic against the registered reference profile
   rebuild.py       posteriors recounted from the event log
+  experiment.py    causal elasticity and sample size from a randomised price test
   store.py         posterior and event store
   simulate.py      policy simulator, logged-bandit generator, offline replay
 scripts/           dataset download
@@ -311,8 +314,16 @@ Azure. What remains is either an owner's account step or a limit the design acce
 - **Tracking on DagsHub.** `retrain.yml` refuses to run until `MLFLOW_TRACKING_URI`,
   `MLFLOW_TRACKING_USERNAME` and the `MLFLOW_TRACKING_PASSWORD` secret exist; locally,
   tracking goes to SQLite and has been run.
-- **Causal elasticities.** The curves come from observational prices, so they are an upper
-  bound; a randomised price test is what would turn the simulated world into a measured one.
+- **A randomised price test on live traffic.** The curves come from observational prices,
+  so they are an upper bound. The analysis is ready (`dp.experiment`: causal elasticity per
+  product by binomial maximum likelihood, and the requests each product needs for a target
+  standard error; on the simulated uniform log the median standard error is 0.31 at 2,000
+  requests per product, and about 5,000 reach ±0.2). What is missing is the traffic.
+- **The price band of an outlier product.** The arms span each product's observed min to
+  max price; for 84879 the minimum (0.14 against a median near 6.6) looks like a bulk or
+  data-entry price, and its cheapest arm hits the simulator's 100% conversion cap. Trimming
+  bands to the 5th-95th percentile would fix it and move every number, so it is left for
+  its own change.
 - **Scale.** One replica, a per-replica rate limit and one API key. The `ponytail:` notes in
   the code name the trigger for each upgrade (Redis, per-key limits, a transactional batch).
 
