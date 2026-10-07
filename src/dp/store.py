@@ -48,6 +48,14 @@ class MemoryContainer:
         self.items[body["id"]] = copy.deepcopy(body)
         return body
 
+    def upsert_item(self, body: dict[str, Any]) -> dict[str, Any]:
+        self.items[body["id"]] = copy.deepcopy(body)
+        return body
+
+    def query_items(self, query: str, **_: Any) -> list[dict[str, Any]]:
+        assert query == "SELECT * FROM c", query  # the only query the store issues
+        return [copy.deepcopy(item) for item in self.items.values()]
+
     def delete_item(self, item: str, partition_key: str) -> None:
         if self.items.pop(item, None) is None:
             raise CosmosResourceNotFoundError(message=f"{item} not found")
@@ -157,3 +165,19 @@ class Store:
 
     def delete_event(self, event_id: str) -> None:
         self._container("events").delete_item(event_id, partition_key=event_id)
+
+    def events(self) -> list[dict[str, Any]]:
+        """Every stored impression and reward: a cross-partition scan, for the offline
+        rebuild only, never on the request path."""
+        container = self._container("events")
+        return list(
+            container.query_items("SELECT * FROM c", enable_cross_partition_query=True)
+        )
+
+    def put_posterior(
+        self, segment: str, alpha: list[float], beta: list[float]
+    ) -> None:
+        """Replace a product's posterior with one rebuilt offline."""
+        self._container("posteriors").upsert_item(
+            {"id": segment, "alpha": alpha, "beta": beta}
+        )

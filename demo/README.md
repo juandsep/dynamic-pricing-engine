@@ -7,19 +7,17 @@ pinned: false
 
 # Dynamic pricing demo
 
-How four pricing policies do on the top 50 products of UCI Online Retail II, and, for
-one product, what each of its five prices earns against where Thompson Sampling sent
-the traffic.
+A one-page explanation of the dynamic pricing engine for someone who has not read the code:
+the problem, how it works, the learning curve of Thompson Sampling against the usual price
+and a random price, the margin each policy earned on the top 50 products of UCI Online
+Retail II, a per-product explorer, the assumptions behind the numbers, and how the same
+policy runs on Azure.
 
-The page is plain HTML and JavaScript over `data.json` (8 KB): per product, the arms,
-the expected margin per request at each one, the share of requests Thompson Sampling
-served to each, and which arm is best and which is the retailer's usual price. It
-calls no API and needs no credentials, so it costs nothing to host.
-
-The numbers come from the simulator: price-response curves fitted on the real data,
-cost at half the modal price, 5% conversion at the median price. The elasticities
-are an upper bound (prices were not randomised), so this is a known world to test the
-policy on, not a claim about the retailer.
+The page is plain HTML and JavaScript over `data.json` (12 KB), written by `make_data.py`
+from the simulator: per product, the arms, the expected margin at each one, where Thompson
+Sampling sent the traffic and when it settled; and the learning curve of every policy at
+48 log-spaced checkpoints. It calls no API and needs no credentials, so it costs nothing to
+host. Light and dark follow the viewer's system setting.
 
 ## Run locally
 
