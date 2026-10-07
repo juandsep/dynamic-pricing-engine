@@ -8,6 +8,7 @@ rate per arm, multiplies by the arm's unit margin and serves the argmax.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import dataclass
@@ -21,6 +22,8 @@ from dp.store import Store
 PRICE_MIN = float(os.getenv("PRICE_MIN", "0.01"))
 PRICE_MAX = float(os.getenv("PRICE_MAX", "100"))
 POLICY_VERSION = os.getenv("POLICY_VERSION", "v1-thompson")
+# Impressions priced at random for a price test, as in docs/data-contract.md.
+EXPERIMENT_VERSION = "v0-uniform"
 # The arms the API serves. Versioned in git and shipped in the image, and registered
 # in MLflow by `python -m dp.retrain`; the serving path never reads the registry.
 CATALOGUE_PATH = Path(__file__).with_name("catalogue.json")
@@ -79,8 +82,33 @@ class ThompsonSampler:
             clamped=price != float(arms[arm]),
         )
 
+    def randomised(self, segment: str, user_id: str) -> Quote:
+        """A uniformly random arm, fixed per (user, product): a customer who reloads
+        sees the same price, and every arm has propensity exactly 1 / n_arms."""
+        arms, _ = self._arms(segment)
+        arm = _hash_unit(f"arm|{user_id}|{segment}") * len(arms)
+        price = float(np.clip(arms[int(arm)], self.min_price, self.max_price))
+        return Quote(
+            segment=segment,
+            arm=int(arm),
+            price=price,
+            propensity=1 / len(arms),
+            clamped=price != float(arms[int(arm)]),
+            policy_version=EXPERIMENT_VERSION,
+        )
+
     def reward(self, segment: str, arm: int, converted: bool) -> None:
         arms, _ = self._arms(segment)
         if not 0 <= arm < len(arms):
             raise ValueError(f"{segment} has no arm {arm}")
         self.store.add_outcome(segment, arm, converted, len(arms))
+
+
+def _hash_unit(key: str) -> float:
+    """A stable number in [0, 1) for a key: the same user and product always land in
+    the same bucket, across replicas and restarts."""
+    return int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big") / 2**64
+
+
+def in_experiment(user_id: str, segment: str, share: float) -> bool:
+    return _hash_unit(f"bucket|{user_id}|{segment}") < share
