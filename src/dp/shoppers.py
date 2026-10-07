@@ -74,6 +74,9 @@ def http_sender(url: str, key: str) -> Send:
                 return r.status, json.loads(r.read() or b"{}")
         except urllib.error.HTTPError as e:
             return e.code, {}
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            # A dropped connection is one failed shopper, not the end of the test.
+            return 0, {}
 
     return send
 
@@ -86,9 +89,11 @@ def run(
     rps: float = 15,
     workers: int = 8,
     seed: int = 0,
+    start: int = 0,
 ) -> dict[str, int]:
-    """`requests` shoppers per product, interleaved, at about `rps` per second."""
-    jobs = [(i, code) for i in range(requests) for code in truth]
+    """`requests` shoppers per product, interleaved, at about `rps` per second.
+    Shopper ids start at `start`, so a resumed run brings new customers."""
+    jobs = [(i, code) for i in range(start, start + requests) for code in truth]
     stats = {"served": 0, "bought": 0, "throttled": 0, "failed": 0}
     lock = threading.Lock()
     interval = workers / rps if rps else 0.0
@@ -138,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--requests", type=int, default=2_000, help="per product")
     parser.add_argument("--factor", type=float, default=0.6)
     parser.add_argument("--rps", type=float, default=15)
+    parser.add_argument("--start", type=int, default=0, help="first shopper id")
     parser.add_argument("--truth", type=Path, default=TRUTH_JSON)
     args = parser.parse_args(argv)
 
@@ -150,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
 
     send = http_sender(args.url.rstrip("/"), os.environ["API_KEY"])
     costs = {code: float(catalogue[code]["cost"]) for code in products}
-    stats = run(send, truth, costs, args.requests, rps=args.rps)
+    stats = run(send, truth, costs, args.requests, rps=args.rps, start=args.start)
     print(json.dumps({**stats, "products": len(products), "truth": str(args.truth)}))
     return 0
 
