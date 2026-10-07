@@ -37,13 +37,17 @@ conversion draws (`uv run python -m dp.simulate`):
 
 | Policy | Expected margin | Regret vs oracle | Share of oracle |
 |---|---|---|---|
-| Oracle (best fixed price per product, knows the curve) | 55,161 | 0 | 100% |
-| **Thompson Sampling** | 51,776 | 3,385 | **93.9%** |
-| Modal price (what the retailer usually charged) | 34,165 | 20,996 | 61.9% |
-| Uniform random | 26,843 | 28,318 | 48.7% |
+| Oracle (best fixed price per product, knows the curve) | 53,125 | 0 | 100% |
+| **Thompson Sampling** | 49,981 | 3,144 | **94.1%** |
+| Modal price (what the retailer usually charged) | 48,450 | 4,675 | 91.2% |
+| Uniform random | 33,395 | 19,730 | 62.9% |
 
-Thompson's posterior settles on the oracle's arm in 46 of 50 products (median 910
-requests); the other four have their two best arms within 5% of each other.
+The retailer's usual price is already the best of the five in 41 of 50 products: within the
+band it really priced in, it priced well. Thompson Sampling does not know that and pays for
+exploring first; it overtakes the usual price after about 10,500 requests per product and
+ends 3.2% above it, at 94.1% of the oracle. Its posterior settles on the oracle's arm in 45
+of 50 products (median 770 requests); the other five have their two best arms within 2.2%
+of each other.
 
 **Regret** is what the best fixed price in hindsight would have earned minus what the
 policy earned — the pricing equivalent of a Qini curve. Read these numbers as a policy
@@ -317,13 +321,8 @@ Azure. What remains is either an owner's account step or a limit the design acce
 - **A randomised price test on live traffic.** The curves come from observational prices,
   so they are an upper bound. The analysis is ready (`dp.experiment`: causal elasticity per
   product by binomial maximum likelihood, and the requests each product needs for a target
-  standard error; on the simulated uniform log the median standard error is 0.31 at 2,000
-  requests per product, and about 5,000 reach ±0.2). What is missing is the traffic.
-- **The price band of an outlier product.** The arms span each product's observed min to
-  max price; for 84879 the minimum (0.14 against a median near 6.6) looks like a bulk or
-  data-entry price, and its cheapest arm hits the simulator's 100% conversion cap. Trimming
-  bands to the 5th-95th percentile would fix it and move every number, so it is left for
-  its own change.
+  standard error; on the simulated uniform log the median standard error is 0.39 at 2,000
+  requests per product, and about 7,500 reach ±0.2). What is missing is the traffic.
 - **Scale.** One replica, a per-replica rate limit and one API key. The `ponytail:` notes in
   the code name the trigger for each upgrade (Redis, per-key limits, a transactional batch).
 
