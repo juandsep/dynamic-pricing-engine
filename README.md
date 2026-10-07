@@ -211,6 +211,25 @@ and screenshots.
 
 ![Static demo on Hugging Face](docs/evidence/demo-space.png)
 
+## Price experiment on Azure
+
+The historical prices were chosen by the retailer, so the elasticities fitted on them are
+biased, and only a randomised price test can measure the real ones. On 2026-10-07 the API ran
+on Azure in experiment mode (`EXPERIMENT_SHARE=1`: each customer gets one of a product's five
+prices at random, with propensity 1/5, the same price on every reload) and 20,556 simulated
+shoppers bought from it following a **hidden** curve, less price-sensitive than the
+observational one. The events were exported from Cosmos DB and analysed with `dp.experiment`.
+
+| | Result |
+|---|---|
+| Hidden elasticity recovered | 9 of 10 products within two standard errors (median SE 0.13 at about 2,000 requests per product) |
+| Observational elasticity | rejected for all 10: 5.4 to 14.1 standard errors from the measured value |
+| Example, 85123A | observational -3.86, hidden -2.32, measured -2.75 ± 0.18 |
+
+The customers are synthetic; the assignment, the logging, Cosmos DB, the export and the
+analysis are the production path. Per-product table and how to rerun it:
+[docs/evidence/price-experiment.md](docs/evidence/price-experiment.md).
+
 ## Data
 
 The exercise runs on **UCI Online Retail II**: 1,067,371 order lines from a UK online
@@ -300,6 +319,8 @@ src/dp/
   drift.py         PSI of live traffic against the registered reference profile
   rebuild.py       posteriors recounted from the event log
   experiment.py    causal elasticity and sample size from a randomised price test
+  shoppers.py      synthetic customers with a hidden demand curve, for a live price test
+  export.py        the Cosmos event log as JSONL
   store.py         posterior and event store
   simulate.py      policy simulator, logged-bandit generator, offline replay
 scripts/           dataset download
@@ -318,11 +339,10 @@ Azure. What remains is either an owner's account step or a limit the design acce
 - **Tracking on DagsHub.** `retrain.yml` refuses to run until `MLFLOW_TRACKING_URI`,
   `MLFLOW_TRACKING_USERNAME` and the `MLFLOW_TRACKING_PASSWORD` secret exist; locally,
   tracking goes to SQLite and has been run.
-- **A randomised price test on live traffic.** The curves come from observational prices,
-  so they are an upper bound. The analysis is ready (`dp.experiment`: causal elasticity per
-  product by binomial maximum likelihood, and the requests each product needs for a target
-  standard error; on the simulated uniform log the median standard error is 0.39 at 2,000
-  requests per product, and about 7,500 reach ±0.2). What is missing is the traffic.
+- **Real customers.** The randomised price test ran end to end on Azure with simulated
+  shoppers ([above](#price-experiment-on-azure)). What only a store can add is people: point
+  a checkout at `/price` with a small `EXPERIMENT_SHARE` (say 10%), and `dp.experiment`
+  reads the result.
 - **Scale.** One replica, a per-replica rate limit and one API key. The `ponytail:` notes in
   the code name the trigger for each upgrade (Redis, per-key limits, a transactional batch).
 

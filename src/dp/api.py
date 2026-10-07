@@ -20,7 +20,13 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_
 from pydantic import BaseModel, Field
 
 from .store import Store
-from .thompson import CATALOGUE_PATH, POLICY_VERSION, ThompsonSampler, load_catalogue
+from .thompson import (
+    CATALOGUE_PATH,
+    POLICY_VERSION,
+    ThompsonSampler,
+    in_experiment,
+    load_catalogue,
+)
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +37,9 @@ app = FastAPI(title="Dynamic Pricing Engine", version="0.1.0")
 API_KEY = os.getenv("API_KEY", "")
 RATE_LIMIT_RPS = float(os.getenv("RATE_LIMIT_RPS", "20"))
 MAX_BODY_BYTES = int(os.getenv("MAX_BODY_BYTES", "4096"))
+# Share of (user, product) pairs priced at random for a price test; 0 serves the
+# policy everywhere. The randomised impressions are what dp.experiment reads.
+EXPERIMENT_SHARE = float(os.getenv("EXPERIMENT_SHARE", "0"))
 
 # Per instance: Prometheus scrapes each replica and sums across them.
 LATENCY = Histogram(
@@ -184,7 +193,10 @@ def get_price(user_id: Id, product: Id) -> dict[str, object]:
     sampler = get_sampler()
     if product not in sampler.catalogue:
         raise HTTPException(status_code=404, detail=f"unknown product {product}")
-    quote = sampler.quote(product)
+    if in_experiment(user_id, product, EXPERIMENT_SHARE):
+        quote = sampler.randomised(product, user_id)
+    else:
+        quote = sampler.quote(product)
     SERVED.labels(quote.policy_version).inc()
     if quote.clamped:
         CLAMPED.inc()

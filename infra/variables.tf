@@ -27,6 +27,23 @@ variable "api_key" {
   sensitive   = true
 }
 
+variable "experiment_share" {
+  description = "Share of (user, product) pairs priced at random for a price test. 0 serves the policy everywhere."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.experiment_share >= 0 && var.experiment_share <= 1
+    error_message = "A share is between 0 and 1."
+  }
+}
+
+variable "operator_can_read_events" {
+  description = "Grant whoever applies read access to Cosmos data, to export the event log for analysis."
+  type        = bool
+  default     = true
+}
+
 variable "cosmos_throughput" {
   description = "Shared by both containers. 1000 RU/s is the free-tier ceiling: above it bills."
   type        = number

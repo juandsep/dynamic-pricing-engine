@@ -18,7 +18,10 @@ on an array index, until then only exercised in memory), the same reward answere
 duplicate, 401 without the key, and `deploy.yml` logging in by OIDC, rolling the app onto the
 commit's image and passing its smoke test.
 The evidence (verbatim live session, CLI inventory, screenshots) is in `docs/evidence/`, and
-the stack was destroyed afterwards the same day; `AZURE_CONTAINER_APP` was removed so pushes to
+the stack was destroyed afterwards the same day. On 2026-10-07 it was applied again in
+experiment mode for a randomised price test with 20,556 simulated shoppers: the hidden
+elasticity was recovered for 9 of 10 products and the observational one rejected for all 10
+(`docs/evidence/price-experiment.md`), and the stack destroyed again; `AZURE_CONTAINER_APP` was removed so pushes to
 `dev` publish the image without deploying.
 
 | | State |
