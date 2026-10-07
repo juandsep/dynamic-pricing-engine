@@ -104,6 +104,7 @@ def attribute(
         joined.append(
             {
                 "arm": float(impression["arm"]),
+                "arm_index": impression.get("arm_index"),
                 "segment": str(impression["segment"]),
                 "propensity": float(impression["propensity"]),
                 "converted": bool(reward["converted"]) if reward else False,
