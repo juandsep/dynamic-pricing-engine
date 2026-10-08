@@ -24,6 +24,16 @@ elasticity was recovered for 9 of 10 products and the observational one rejected
 (`docs/evidence/price-experiment.md`), and the stack destroyed again; `AZURE_CONTAINER_APP` was removed so pushes to
 `dev` publish the image without deploying.
 
+Pending, in order of value:
+
+1. **Contextual pricing on Olist.** Segment customers by recency, frequency and monetary
+   value, keep one posterior per (product, segment, arm), and measure whether a price per
+   segment beats one price per product on the same simulator. Needs a Kaggle token on the
+   owner's machine (`~/.kaggle/kaggle.json`); the dataset stays out of CI, like M5.
+2. **Real customers.** The randomised test and its analysis are built and were run on Azure
+   with simulated shoppers; what only a store can add is people (see *Evaluating the engine*
+   in the README).
+
 | | State |
 |---|---|
 | Foundations, data contract, offline replay | merged |
@@ -100,6 +110,21 @@ Alternatives rejected:
 - **Corporación Favorita** — same Kaggle problem, larger than the exercise needs.
 - **X5 RetailHero** — the sibling project `uplift-modeling-pipeline` already uses it, and two
   portfolio projects on one dataset reads as one project.
+
+Reviewed again on 2026-10-08, as candidate second sources. None of them has buyers reacting to
+prices the engine assigns, so none replaces a randomised test with real customers:
+
+- **Inside Airbnb** — free, CC BY 4.0, no account. Its `calendar.csv.gz` no longer carries a
+  nightly price (checked on Barcelona, 2026-09-17: `listing_id, date, available,
+  minimum_nights, maximum_nights`), so booking cannot be related to price per night.
+- **Retail Price Optimization (Kaggle)** — 676 rows over 9 categories, and its only cost is
+  `freight_price`: smaller than UCI and without unit costs.
+- **Uber & Lyft cab prices (Kaggle)** — completed rides only: no record of a quote that was
+  declined, so no demand curve; surge pricing would also need supply.
+- **Olist Brazilian E-commerce (Kaggle)** — about 100k orders with a repeat customer id and
+  the same product sold at several prices. It cannot validate the engine either, but it can
+  segment customers (recency, frequency, monetary value) for a contextual policy. Kept as the
+  next extension, below.
 
 ## Scale: the reference project, component by component
 
