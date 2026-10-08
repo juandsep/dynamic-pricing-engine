@@ -334,15 +334,37 @@ demo/              static page over the simulation (Hugging Face Space)
 tests/             unit and integration tests
 ```
 
+## Evaluating the engine
+
+An engine like this is judged at three levels, and each needs different evidence:
+
+| Level | Question | How it is answered here | Status |
+|---|---|---|---|
+| Does it work? | Correct prices, idempotent rewards, guards, deploys, latency | 65 offline tests; the live session on Azure | verified |
+| Does it learn? | Does it find the best price, how fast, and at what cost | A simulator where the true curve is known, so regret is exact: 94.1% of the oracle, settled in 45 of 50 products | verified |
+| Does it make money? | More margin per visitor than the current price, with real customers | An A/B test in a store | needs a store |
+
+The third level cannot be read from any dataset, because the counterfactual (what the same
+customers would have bought at another price) is never in historical data. In a store it is
+an A/B test: split visitors at random, serve the control group the current price and the
+treatment group the engine's price, and compare margin per visitor over a few weeks. The API
+already does the hard parts: sticky per-customer assignment, propensities in every impression,
+idempotent rewards. The randomised price test (`EXPERIMENT_SHARE`) runs first, to measure the
+real elasticities; then the engine competes against the current price.
+
 ## What is left
 
 Done means every phase in [PLAN.md](PLAN.md) is merged, released to `main` and verified on
 Azure. What remains is either an owner's account step or a limit the design accepts on purpose:
 
+- **Contextual pricing on Olist.** Today the engine learns one price per product, the same
+  for every customer. The Olist e-commerce data (about 100k orders with a repeat customer id)
+  would let it segment customers by recency, frequency and monetary value and learn a price
+  per product and segment. Inside Airbnb, Retail Price Optimization and Uber & Lyft were
+  reviewed too and do not fit; the reasons are in [PLAN.md](PLAN.md#dataset).
 - **Real customers.** The randomised price test ran end to end on Azure with simulated
-  shoppers ([above](#price-experiment-on-azure)). What only a store can add is people: point
-  a checkout at `/price` with a small `EXPERIMENT_SHARE` (say 10%), and `dp.experiment`
-  reads the result.
+  shoppers ([above](#price-experiment-on-azure)). What only a store can add is people; see
+  [Evaluating the engine](#evaluating-the-engine).
 - **Scale.** One replica, a per-replica rate limit and one API key. The `ponytail:` notes in
   the code name the trigger for each upgrade (Redis, per-key limits, a transactional batch).
 
