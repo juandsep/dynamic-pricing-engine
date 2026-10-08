@@ -179,7 +179,10 @@ attached) and one child run per policy with its regret, margin and share of the 
 Only the best deployable policy is registered, and the SHA-256 of the feature table and of
 the curves are logged so a policy can be traced to the exact data it saw. Tracking is a
 local SQLite file by default and DagsHub's free MLflow server in CI (`retrain.yml`, manual
-trigger).
+trigger). The runs and the registry are public:
+[dagshub.com/juandsep/dynamic-pricing-engine](https://dagshub.com/juandsep/dynamic-pricing-engine/experiments)
+(first CI retrain on 2026-10-08: Thompson 94.1%, modal 91.2%, uniform 62.9% of the oracle,
+`dynamic-pricing-policy` version 1).
 
 UCI Online Retail II does not change, so retraining it reproduces the same numbers. With
 live traffic, retrain when a new randomised price test closes, when the margin measured on
@@ -336,9 +339,6 @@ tests/             unit and integration tests
 Done means every phase in [PLAN.md](PLAN.md) is merged, released to `main` and verified on
 Azure. What remains is either an owner's account step or a limit the design accepts on purpose:
 
-- **Tracking on DagsHub.** `retrain.yml` refuses to run until `MLFLOW_TRACKING_URI`,
-  `MLFLOW_TRACKING_USERNAME` and the `MLFLOW_TRACKING_PASSWORD` secret exist; locally,
-  tracking goes to SQLite and has been run.
 - **Real customers.** The randomised price test ran end to end on Azure with simulated
   shoppers ([above](#price-experiment-on-azure)). What only a store can add is people: point
   a checkout at `/price` with a small `EXPERIMENT_SHARE` (say 10%), and `dp.experiment`
