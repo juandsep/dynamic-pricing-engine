@@ -7,8 +7,14 @@ terraform {
       version = "~> 4.0"
     }
   }
-  # State stays local on purpose (infra/*.tfstate is git-ignored): a state storage
-  # account would be the one resource nobody ever destroys.
+  # State lives in the portfolio's shared GCS state bucket, not in an Azure storage
+  # account: that account would be the one resource nobody ever destroys, while the
+  # bucket already exists and costs nothing. `terraform init` needs Google
+  # application-default credentials.
+  backend "gcs" {
+    bucket = "jd-portfolio-shared-tfstate"
+    prefix = "dynamic-pricing-engine"
+  }
 }
 
 provider "azurerm" {

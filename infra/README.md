@@ -24,7 +24,7 @@ Deliberately **not** provisioned, and why:
 
 ```
 infra/
-├─ versions.tf                # Terraform and azurerm versions, provider, local state
+├─ versions.tf                # Terraform and azurerm versions, provider, GCS state
 ├─ main.tf                    # Cosmos account, database and containers; Container Apps
 │                             # environment and app; the app's data-plane role
 ├─ variables.tf               # inputs (subscription, names, image, API key, throughput)
@@ -54,8 +54,9 @@ terraform destroy -var-file=terraform.tfvars
 ```
 
 Free grants cover the running hours; destroying removes the ones that bill while idle. Terraform
-state stays local (`infra/*.tfstate` is git-ignored) because a state storage account would be the
-only resource nobody ever destroys.
+state lives in `gs://jd-portfolio-shared-tfstate/dynamic-pricing-engine`, the portfolio's shared
+GCS state bucket, because an Azure storage account would be the only resource nobody ever
+destroys. `terraform init` needs `gcloud auth application-default login`.
 
 ## Bootstrap (one-off, by hand)
 
